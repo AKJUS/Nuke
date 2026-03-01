@@ -22,6 +22,23 @@ extension ImagePipeline.Error: @retroactive Equatable {
     }
 }
 
+extension ImageTask.Event: @retroactive Equatable {
+    public static func == (lhs: ImageTask.Event, rhs: ImageTask.Event) -> Bool {
+        switch (lhs, rhs) {
+        case let (.progress(lhs), .progress(rhs)):
+            return lhs == rhs
+        case let (.preview(lhs), .preview(rhs)):
+            return lhs == rhs
+        case (.cancelled, .cancelled):
+            return true
+        case let (.finished(lhs), .finished(rhs)):
+            return lhs == rhs
+        default:
+            return false
+        }
+    }
+}
+
 extension ImageResponse: @retroactive Equatable {
     public static func == (lhs: ImageResponse, rhs: ImageResponse) -> Bool {
         return lhs.image === rhs.image

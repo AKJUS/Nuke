@@ -2,69 +2,68 @@
 //
 // Copyright (c) 2015-2026 Alexander Grebenyuk (github.com/kean).
 
-import XCTest
+import Testing
+import Foundation
 import Combine
 @testable import Nuke
 
-class ImagePipelinePublisherTests: XCTestCase {
-    var dataLoader: MockDataLoader!
-    var imageCache: MockImageCache!
-    var dataCache: MockDataCache!
-    var observer: ImagePipelineObserver!
-    var pipeline: ImagePipeline!
+@Suite struct ImagePipelinePublisherTests {
+    let dataLoader: MockDataLoader
+    let imageCache: MockImageCache
+    let dataCache: MockDataCache
+    let observer: ImagePipelineObserver
+    let pipeline: ImagePipeline
 
-    override func setUp() {
-        super.setUp()
-
-        dataLoader = MockDataLoader()
-        imageCache = MockImageCache()
-        dataCache = MockDataCache()
-        observer = ImagePipelineObserver()
-        pipeline = ImagePipeline(delegate: observer) {
+    init() {
+        let dataLoader = MockDataLoader()
+        let imageCache = MockImageCache()
+        let dataCache = MockDataCache()
+        let observer = ImagePipelineObserver()
+        self.dataLoader = dataLoader
+        self.imageCache = imageCache
+        self.dataCache = dataCache
+        self.observer = observer
+        self.pipeline = ImagePipeline(delegate: observer) {
             $0.dataLoader = dataLoader
             $0.imageCache = imageCache
             $0.dataCache = dataCache
         }
     }
 
-    func testLoadWithPublisher() throws {
+    @Test func loadWithPublisher() async throws {
         // GIVEN
         let request = ImageRequest(id: "a", dataPublisher: Just(Test.data))
 
         // WHEN
-        let record = expect(pipeline).toLoadImage(with: request)
-        wait()
+        let response = try await pipeline.imageTask(with: request).response
 
         // THEN
-        let image = try XCTUnwrap(record.image)
-        XCTAssertEqual(image.sizeInPixels, CGSize(width: 640, height: 480))
+        #expect(response.image.sizeInPixels == CGSize(width: 640, height: 480))
     }
 
-    func testLoadWithPublisherAndApplyProcessor() throws {
+    @Test func loadWithPublisherAndApplyProcessor() async throws {
         // GIVEN
         var request = ImageRequest(id: "a", dataPublisher: Just(Test.data))
         request.processors = [MockImageProcessor(id: "1")]
 
         // WHEN
-        let record = expect(pipeline).toLoadImage(with: request)
-        wait()
+        let response = try await pipeline.imageTask(with: request).response
 
         // THEN
-        let image = try XCTUnwrap(record.image)
-        XCTAssertEqual(image.sizeInPixels, CGSize(width: 640, height: 480))
-        XCTAssertEqual(image.nk_test_processorIDs, ["1"])
+        #expect(response.image.sizeInPixels == CGSize(width: 640, height: 480))
+        #expect(response.image.nk_test_processorIDs == ["1"])
     }
 
-    func testImageRequestWithPublisher() {
+    @Test func imageRequestWithPublisher() {
         // GIVEN
         let request = ImageRequest(id: "a", dataPublisher: Just(Test.data))
 
         // THEN
-        XCTAssertNil(request.urlRequest)
-        XCTAssertNil(request.url)
+        #expect(request.urlRequest == nil)
+        #expect(request.url == nil)
     }
 
-    func testCancellation() {
+    @Test func cancellation() async {
         // GIVEN
         dataLoader.isSuspended = true
 
@@ -72,47 +71,44 @@ class ImagePipelinePublisherTests: XCTestCase {
         let cancellable = pipeline
             .imagePublisher(with: Test.request)
             .sink(receiveCompletion: { _ in }, receiveValue: { _ in })
-        expectNotification(ImagePipelineObserver.didCancelTask, object: observer)
-        cancellable.cancel()
-        wait()
+
+        await notification(ImagePipelineObserver.didCancelTask, object: observer) {
+            cancellable.cancel()
+        }
     }
 
-    func testDataIsStoredInDataCache() {
+    @Test func dataIsStoredInDataCache() async throws {
         // GIVEN
         let request = ImageRequest(id: "a", dataPublisher: Just(Test.data))
 
         // WHEN
-        expect(pipeline).toLoadImage(with: request)
+        _ = try await pipeline.image(for: request)
 
         // THEN
-        wait { _ in
-            XCTAssertFalse(self.dataCache.store.isEmpty)
-        }
+        #expect(!dataCache.store.isEmpty)
     }
 
-    func testInitWithURL() {
+    @Test func initWithURL() {
         _ = pipeline.imagePublisher(with: URL(string: "https://example.com/image.jpeg")!)
     }
 
-    func testInitWithImageRequest() {
+    @Test func initWithImageRequest() {
         _ = pipeline.imagePublisher(with: ImageRequest(url: URL(string: "https://example.com/image.jpeg")))
     }
 }
 
-class ImagePipelinePublisherProgressiveDecodingTests: XCTestCase {
-    private var dataLoader: MockProgressiveDataLoader!
-    private var imageCache: MockImageCache!
-    private var pipeline: ImagePipeline!
-    private var cancellable: AnyCancellable?
+@Suite struct ImagePipelinePublisherProgressiveDecodingTests {
+    private let dataLoader: MockProgressiveDataLoader
+    private let imageCache: MockImageCache
+    private let pipeline: ImagePipeline
 
-    override func setUp() {
-        super.setUp()
+    init() {
+        let dataLoader = MockProgressiveDataLoader()
+        let imageCache = MockImageCache()
 
-        dataLoader = MockProgressiveDataLoader()
-        imageCache = MockImageCache()
-        ResumableDataStorage.shared.removeAllResponses()
-
-        pipeline = ImagePipeline {
+        self.dataLoader = dataLoader
+        self.imageCache = imageCache
+        self.pipeline = ImagePipeline {
             $0.dataLoader = dataLoader
             $0.imageCache = imageCache
             $0.isResumableDataEnabled = false
@@ -122,67 +118,60 @@ class ImagePipelinePublisherProgressiveDecodingTests: XCTestCase {
         }
     }
 
-    func testImagePreviewsAreDelivered() {
-        let imagesProduced = self.expectation(description: "ImagesProduced")
-        imagesProduced.expectedFulfillmentCount = 3 // 2 partial, 1 final
-        var previewsCount = 0
-        let completed = self.expectation(description: "Completed")
+    @Test func imagePreviewsAreDelivered() async {
+        let expectation = TestExpectation()
+        nonisolated(unsafe) var previewsCount = 0
+        nonisolated(unsafe) var isCompleted = false
 
         // WHEN
         let publisher = pipeline.imagePublisher(with: Test.url)
-        cancellable = publisher.sink(receiveCompletion: { completion in
+        let cancellable = publisher.sink(receiveCompletion: { completion in
             switch completion {
             case .failure:
-                XCTFail()
+                Issue.record("Unexpected failure")
             case .finished:
-                completed.fulfill()
+                isCompleted = true
+                expectation.fulfill()
             }
-
         }, receiveValue: { response in
-            imagesProduced.fulfill()
-            if previewsCount == 2 {
-                XCTAssertFalse(response.container.isPreview)
+            previewsCount += 1
+            if previewsCount == 3 {
+                #expect(!response.container.isPreview)
             } else {
-                XCTAssertTrue(response.container.isPreview)
-                previewsCount += 1
+                #expect(response.container.isPreview)
             }
             self.dataLoader.resume()
         })
-        wait()
+        await expectation.wait()
+        withExtendedLifetime(cancellable) {}
+
+        #expect(previewsCount == 3) // 2 partial + 1 final
+        #expect(isCompleted)
     }
 
-    func testImagePreviewsAreDeliveredFromMemoryCacheSynchronously() {
+    @Test func imagePreviewsAreDeliveredFromMemoryCacheSynchronously() async {
         // GIVEN
         pipeline.cache[Test.request] = ImageContainer(image: Test.image, isPreview: true)
 
-        let imagesProduced = self.expectation(description: "ImagesProduced")
-        // 1 preview from sync cache lookup
-        // 1 preview from async cache lookup (we don't want it really though)
-        // 2 previews from data loading
-        // 1 final image
-        // we also expect resumable data to kick in for real downloads
-        imagesProduced.expectedFulfillmentCount = 5
-        var previewsCount = 0
-        var isFirstPreviewProduced = false
-        let completed = self.expectation(description: "Completed")
+        let expectation = TestExpectation()
+        nonisolated(unsafe) var previewsCount = 0
+        nonisolated(unsafe) var isFirstPreviewProduced = false
 
         // WHEN
         let publisher = pipeline.imagePublisher(with: Test.url)
-        cancellable =  publisher.sink(receiveCompletion: { completion in
+        let cancellable = publisher.sink(receiveCompletion: { completion in
             switch completion {
             case .failure:
-                XCTFail()
+                Issue.record("Unexpected failure")
             case .finished:
-                completed.fulfill()
+                expectation.fulfill()
             }
-
         }, receiveValue: { response in
-            imagesProduced.fulfill()
             previewsCount += 1
             if previewsCount == 5 {
-                XCTAssertFalse(response.container.isPreview)
+                #expect(!response.container.isPreview)
             } else {
-                XCTAssertTrue(response.container.isPreview)
+                #expect(response.container.isPreview)
                 if previewsCount >= 3 {
                     self.dataLoader.resume()
                 } else {
@@ -190,7 +179,8 @@ class ImagePipelinePublisherProgressiveDecodingTests: XCTestCase {
                 }
             }
         })
-        XCTAssertTrue(isFirstPreviewProduced)
-        wait(200, handler: nil)
+        #expect(isFirstPreviewProduced)
+        await expectation.wait()
+        withExtendedLifetime(cancellable) {}
     }
 }

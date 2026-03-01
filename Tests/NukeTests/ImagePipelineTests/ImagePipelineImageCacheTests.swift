@@ -2,71 +2,68 @@
 //
 // Copyright (c) 2015-2026 Alexander Grebenyuk (github.com/kean).
 
-import XCTest
+import Testing
+import Foundation
 @testable import Nuke
 
 /// Test how well image pipeline interacts with memory cache.
-class ImagePipelineImageCacheTests: XCTestCase {
-    var dataLoader: MockDataLoader!
-    var cache: MockImageCache!
-    var pipeline: ImagePipeline!
+@Suite struct ImagePipelineImageCacheTests {
+    let dataLoader: MockDataLoader
+    let cache: MockImageCache
+    let pipeline: ImagePipeline
 
-    override func setUp() {
-        super.setUp()
-
-        dataLoader = MockDataLoader()
-        cache = MockImageCache()
-        pipeline = ImagePipeline {
+    init() {
+        let dataLoader = MockDataLoader()
+        let cache = MockImageCache()
+        self.dataLoader = dataLoader
+        self.cache = cache
+        self.pipeline = ImagePipeline {
             $0.dataLoader = dataLoader
             $0.imageCache = cache
         }
     }
 
-    func testThatImageIsLoaded() {
-        expect(pipeline).toLoadImage(with: Test.request)
-        wait()
+    @Test func thatImageIsLoaded() async throws {
+        try await pipeline.image(for: Test.request)
     }
 
     // MARK: Caching
 
-    func testCacheWrite() {
+    @Test func cacheWrite() async throws {
         // When
-        expect(pipeline).toLoadImage(with: Test.request)
-        wait()
+        try await pipeline.image(for: Test.request)
 
         // Then
-        XCTAssertEqual(dataLoader.createdTaskCount, 1)
-        XCTAssertNotNil(cache[Test.request])
+        #expect(dataLoader.createdTaskCount == 1)
+        #expect(cache[Test.request] != nil)
     }
 
-    func testCacheRead() {
+    @Test func cacheRead() async throws {
         // Given
         cache[Test.request] = ImageContainer(image: Test.image)
 
         // When
-        expect(pipeline).toLoadImage(with: Test.request)
-        wait()
+        try await pipeline.image(for: Test.request)
 
         // Then
-        XCTAssertEqual(dataLoader.createdTaskCount, 0)
-        XCTAssertNotNil(cache[Test.request])
+        #expect(dataLoader.createdTaskCount == 0)
+        #expect(cache[Test.request] != nil)
     }
 
-    func testCacheWriteDisabled() {
+    @Test func cacheWriteDisabled() async throws {
         // Given
         var request = Test.request
         request.options.insert(.disableMemoryCacheWrites)
 
         // When
-        expect(pipeline).toLoadImage(with: request)
-        wait()
+        try await pipeline.image(for: request)
 
         // Then
-        XCTAssertEqual(dataLoader.createdTaskCount, 1)
-        XCTAssertNil(cache[Test.request])
+        #expect(dataLoader.createdTaskCount == 1)
+        #expect(cache[Test.request] == nil)
     }
 
-    func testMemoryCacheReadDisabled() {
+    @Test func memoryCacheReadDisabled() async throws {
         // Given
         cache[Test.request] = ImageContainer(image: Test.image)
 
@@ -74,15 +71,14 @@ class ImagePipelineImageCacheTests: XCTestCase {
         request.options.insert(.disableMemoryCacheReads)
 
         // When
-        expect(pipeline).toLoadImage(with: request)
-        wait()
+        try await pipeline.image(for: request)
 
         // Then
-        XCTAssertEqual(dataLoader.createdTaskCount, 1)
-        XCTAssertNotNil(cache[Test.request])
+        #expect(dataLoader.createdTaskCount == 1)
+        #expect(cache[Test.request] != nil)
     }
 
-    func testReloadIgnoringCachedData() {
+    @Test func reloadIgnoringCachedData() async throws {
         // Given
         cache[Test.request] = ImageContainer(image: Test.image)
 
@@ -90,247 +86,235 @@ class ImagePipelineImageCacheTests: XCTestCase {
         request.options.insert(.reloadIgnoringCachedData)
 
         // When
-        expect(pipeline).toLoadImage(with: request)
-        wait()
+        try await pipeline.image(for: request)
 
         // Then
-        XCTAssertEqual(dataLoader.createdTaskCount, 1)
-        XCTAssertNotNil(cache[Test.request])
+        #expect(dataLoader.createdTaskCount == 1)
+        #expect(cache[Test.request] != nil)
     }
 
-    func testGeneratedThumbnailDataIsStoredIncache() throws {
+    @Test func generatedThumbnailDataIsStoredInCache() async throws {
         // When
         let request = ImageRequest(url: Test.url, userInfo: [.thumbnailKey: ImageRequest.ThumbnailOptions(size: CGSize(width: 400, height: 400), unit: .pixels, contentMode: .aspectFit)])
-        expect(pipeline).toLoadImage(with: request)
+        try await pipeline.image(for: request)
 
         // Then
-        wait { _ in
-            guard let container = self.pipeline.cache[request] else {
-                return XCTFail()
-            }
-            XCTAssertEqual(container.image.sizeInPixels, CGSize(width: 400, height: 300))
-
-            XCTAssertNil(self.pipeline.cache[ImageRequest(url: Test.url)])
-        }
+        let container = try #require(pipeline.cache[request])
+        #expect(container.image.sizeInPixels == CGSize(width: 400, height: 300))
+        #expect(pipeline.cache[ImageRequest(url: Test.url)] == nil)
     }
 }
 
 /// Make sure that cache layers are checked in the correct order and the
 /// minimum necessary number of cache lookups are performed.
-class ImagePipelineCacheLayerPriorityTests: XCTestCase {
-    var pipeline: ImagePipeline!
-    var dataLoader: MockDataLoader!
-    var imageCache: MockImageCache!
-    var dataCache: MockDataCache!
-    var processorFactory: MockProcessorFactory!
+@Suite struct ImagePipelineCacheLayerPriorityTests {
+    let pipeline: ImagePipeline
+    let dataLoader: MockDataLoader
+    let imageCache: MockImageCache
+    let dataCache: MockDataCache
+    let processorFactory: MockProcessorFactory
 
-    var request: ImageRequest!
-    var intermediateRequest: ImageRequest!
-    var processedImage: ImageContainer!
-    var intermediateImage: ImageContainer!
-    var originalRequest: ImageRequest!
-    var originalImage: ImageContainer!
+    let request: ImageRequest
+    let intermediateRequest: ImageRequest
+    let processedImage: ImageContainer
+    let intermediateImage: ImageContainer
+    let originalRequest: ImageRequest
+    let originalImage: ImageContainer
 
-    override func setUp() {
-        super.setUp()
+    init() {
+        let dataCache = MockDataCache()
+        let dataLoader = MockDataLoader()
+        let imageCache = MockImageCache()
+        let processorFactory = MockProcessorFactory()
+        self.dataCache = dataCache
+        self.dataLoader = dataLoader
+        self.imageCache = imageCache
+        self.processorFactory = processorFactory
 
-        dataCache = MockDataCache()
-        dataLoader = MockDataLoader()
-        imageCache = MockImageCache()
-        processorFactory = MockProcessorFactory()
-
-        pipeline = ImagePipeline {
+        self.pipeline = ImagePipeline {
             $0.dataLoader = dataLoader
             $0.dataCache = dataCache
             $0.imageCache = imageCache
             $0.debugIsSyncImageEncoding = true
         }
 
-        request = ImageRequest(url: Test.url, processors: [
+        self.request = ImageRequest(url: Test.url, processors: [
             processorFactory.make(id: "1"),
             processorFactory.make(id: "2")
         ])
 
-        intermediateRequest = ImageRequest(url: Test.url, processors: [
+        self.intermediateRequest = ImageRequest(url: Test.url, processors: [
             processorFactory.make(id: "1")
         ])
 
-        originalRequest = ImageRequest(url: Test.url)
+        self.originalRequest = ImageRequest(url: Test.url)
 
         do {
             let image = PlatformImage(data: Test.data)!
             image.nk_test_processorIDs = ["1", "2"]
-            processedImage = ImageContainer(image: image)
+            self.processedImage = ImageContainer(image: image)
         }
 
         do {
             let image = PlatformImage(data: Test.data)!
             image.nk_test_processorIDs = ["1"]
-            intermediateImage = ImageContainer(image: image)
+            self.intermediateImage = ImageContainer(image: image)
         }
 
-        originalImage = ImageContainer(image: PlatformImage(data: Test.data)!)
+        self.originalImage = ImageContainer(image: PlatformImage(data: Test.data)!)
     }
 
-    func testGivenProcessedImageInMemoryCache() {
+    @Test func givenProcessedImageInMemoryCache() async throws {
         // GIVEN
         imageCache[request] = processedImage
 
         // WHEN
-        let record = expect(pipeline).toLoadImage(with: request)
-        wait()
-        XCTAssertTrue(record.image === processedImage.image)
-        XCTAssertEqual(record.response?.cacheType, .memory)
+        let response = try await pipeline.imageTask(with: request).response
+        #expect(response.image === processedImage.image)
+        #expect(response.cacheType == .memory)
 
         // THEN
-        XCTAssertEqual(imageCache.readCount, 1)
-        XCTAssertEqual(imageCache.writeCount, 1) // Initial write
-        XCTAssertEqual(dataCache.readCount, 0)
-        XCTAssertEqual(dataCache.writeCount, 0)
-        XCTAssertEqual(dataLoader.createdTaskCount, 0)
+        #expect(imageCache.readCount == 1)
+        #expect(imageCache.writeCount == 1) // Initial write
+        #expect(dataCache.readCount == 0)
+        #expect(dataCache.writeCount == 0)
+        #expect(dataLoader.createdTaskCount == 0)
     }
 
-    func testGivenProcessedImageInBothMemoryAndDiskCache() {
+    @Test func givenProcessedImageInBothMemoryAndDiskCache() async throws {
         // GIVEN
         pipeline.cache.storeCachedImage(processedImage, for: request, caches: [.all])
 
         // WHEN
-        let record = expect(pipeline).toLoadImage(with: request)
-        wait()
-        XCTAssertTrue(record.image === processedImage.image)
-        XCTAssertEqual(record.response?.cacheType, .memory)
+        let response = try await pipeline.imageTask(with: request).response
+        #expect(response.image === processedImage.image)
+        #expect(response.cacheType == .memory)
 
         // THEN
-        XCTAssertEqual(imageCache.readCount, 1)
-        XCTAssertEqual(imageCache.writeCount, 1) // Initial write
-        XCTAssertEqual(dataCache.readCount, 0)
-        XCTAssertEqual(dataCache.writeCount, 1) // Initial write
-        XCTAssertEqual(dataLoader.createdTaskCount, 0)
+        #expect(imageCache.readCount == 1)
+        #expect(imageCache.writeCount == 1) // Initial write
+        #expect(dataCache.readCount == 0)
+        #expect(dataCache.writeCount == 1) // Initial write
+        #expect(dataLoader.createdTaskCount == 0)
     }
 
-    func testGivenProcessedImageInDiskCache() {
+    @Test func givenProcessedImageInDiskCache() async throws {
         // GIVEN
         pipeline.cache.storeCachedImage(processedImage, for: request, caches: [.disk])
 
         // WHEN
-        let record = expect(pipeline).toLoadImage(with: request)
-        wait()
-        XCTAssertNotNil(record.image)
-        XCTAssertEqual(record.response?.cacheType, .disk)
+        let response = try await pipeline.imageTask(with: request).response
+        #expect(response.image != nil)
+        #expect(response.cacheType == .disk)
 
         // THEN
-        XCTAssertEqual(imageCache.readCount, 1)
-        XCTAssertEqual(imageCache.writeCount, 1) // Initial write
-        XCTAssertEqual(dataCache.readCount, 1)
-        XCTAssertEqual(dataCache.writeCount, 1) // Initial write
-        XCTAssertEqual(dataLoader.createdTaskCount, 0)
+        #expect(imageCache.readCount == 1)
+        #expect(imageCache.writeCount == 1) // Initial write
+        #expect(dataCache.readCount == 1)
+        #expect(dataCache.writeCount == 1) // Initial write
+        #expect(dataLoader.createdTaskCount == 0)
     }
 
-    func testGivenProcessedImageInDiskCacheAndIndermediateImageInMemoryCache() {
+    @Test func givenProcessedImageInDiskCacheAndIntermediateImageInMemoryCache() async throws {
         // GIVEN
         pipeline.cache.storeCachedImage(processedImage, for: request, caches: [.disk])
         pipeline.cache.storeCachedImage(intermediateImage, for: intermediateRequest, caches: [.memory])
 
         // WHEN
-        let record = expect(pipeline).toLoadImage(with: request)
-        wait()
-        XCTAssertNotNil(record.image)
-        XCTAssertEqual(record.response?.cacheType, .disk)
+        let response = try await pipeline.imageTask(with: request).response
+        #expect(response.image != nil)
+        #expect(response.cacheType == .disk)
 
         // THEN
-        XCTAssertEqual(imageCache.readCount, 1)
-        XCTAssertEqual(imageCache.writeCount, 2) // Initial write
-        XCTAssertNotNil(imageCache[request])
-        XCTAssertNotNil(imageCache[intermediateRequest])
-        XCTAssertEqual(dataCache.readCount, 1)
-        XCTAssertEqual(dataCache.writeCount, 1) // Initial write
-        XCTAssertEqual(dataLoader.createdTaskCount, 0)
+        #expect(imageCache.readCount == 1)
+        #expect(imageCache.writeCount == 2) // Initial write
+        #expect(imageCache[request] != nil)
+        #expect(imageCache[intermediateRequest] != nil)
+        #expect(dataCache.readCount == 1)
+        #expect(dataCache.writeCount == 1) // Initial write
+        #expect(dataLoader.createdTaskCount == 0)
     }
 
-    func testGivenIndermediateImageInMemoryCache() {
+    @Test func givenIntermediateImageInMemoryCache() async throws {
         // GIVEN
         pipeline.cache.storeCachedImage(intermediateImage, for: intermediateRequest, caches: [.memory])
 
         // WHEN
-        let record = expect(pipeline).toLoadImage(with: request)
-        wait()
-        XCTAssertEqual(record.image?.nk_test_processorIDs, ["1", "2"])
-        XCTAssertEqual(record.response?.cacheType, .memory)
+        let response = try await pipeline.imageTask(with: request).response
+        #expect(response.image.nk_test_processorIDs == ["1", "2"])
+        #expect(response.cacheType == .memory)
 
         // THEN
-        XCTAssertEqual(imageCache.readCount, 2) // Processed + intermediate
-        XCTAssertEqual(imageCache.writeCount, 2) // Initial write
-        XCTAssertNotNil(imageCache[request])
-        XCTAssertNotNil(imageCache[intermediateRequest])
-        XCTAssertEqual(dataCache.readCount, 1) // Check original image
-        XCTAssertEqual(dataCache.writeCount, 0)
-        XCTAssertEqual(dataLoader.createdTaskCount, 0)
+        #expect(imageCache.readCount == 2) // Processed + intermediate
+        #expect(imageCache.writeCount == 2) // Initial write
+        #expect(imageCache[request] != nil)
+        #expect(imageCache[intermediateRequest] != nil)
+        #expect(dataCache.readCount == 1) // Check original image
+        #expect(dataCache.writeCount == 0)
+        #expect(dataLoader.createdTaskCount == 0)
     }
 
-    func testGivenOriginalAndIntermediateImageInMemoryCache() {
+    @Test func givenOriginalAndIntermediateImageInMemoryCache() async throws {
         // GIVEN
         pipeline.cache.storeCachedImage(intermediateImage, for: intermediateRequest, caches: [.memory])
         pipeline.cache.storeCachedImage(originalImage, for: originalRequest, caches: [.memory])
 
         // WHEN
-        let record = expect(pipeline).toLoadImage(with: request)
-        wait()
-        XCTAssertEqual(record.image?.nk_test_processorIDs, ["1", "2"])
-        XCTAssertEqual(record.response?.cacheType, .memory)
+        let response = try await pipeline.imageTask(with: request).response
+        #expect(response.image.nk_test_processorIDs == ["1", "2"])
+        #expect(response.cacheType == .memory)
 
         // THEN
-        XCTAssertEqual(imageCache.readCount, 2) // Processed + intermediate
-        XCTAssertEqual(imageCache.writeCount, 3) // Initial write + write processed
-        XCTAssertNotNil(imageCache[originalRequest])
-        XCTAssertNotNil(imageCache[request])
-        XCTAssertNotNil(imageCache[intermediateRequest])
-        XCTAssertEqual(dataCache.readCount, 1) // Check original image
-        XCTAssertEqual(dataCache.writeCount, 0)
-        XCTAssertEqual(dataLoader.createdTaskCount, 0)
+        #expect(imageCache.readCount == 2) // Processed + intermediate
+        #expect(imageCache.writeCount == 3) // Initial write + write processed
+        #expect(imageCache[originalRequest] != nil)
+        #expect(imageCache[request] != nil)
+        #expect(imageCache[intermediateRequest] != nil)
+        #expect(dataCache.readCount == 1) // Check original image
+        #expect(dataCache.writeCount == 0)
+        #expect(dataLoader.createdTaskCount == 0)
     }
 
-    func testGivenOriginalImageInBothCaches() {
+    @Test func givenOriginalImageInBothCaches() async throws {
         // GIVEN
         pipeline.cache.storeCachedImage(originalImage, for: originalRequest, caches: [.all])
 
         // WHEN
-        let record = expect(pipeline).toLoadImage(with: request)
-        wait()
-        XCTAssertEqual(record.image?.nk_test_processorIDs, ["1", "2"])
-        XCTAssertEqual(record.response?.cacheType, .memory)
+        let response = try await pipeline.imageTask(with: request).response
+        #expect(response.image.nk_test_processorIDs == ["1", "2"])
+        #expect(response.cacheType == .memory)
 
         // THEN
-        XCTAssertEqual(imageCache.readCount, 3) // Processed + intermediate + original
-        XCTAssertEqual(imageCache.writeCount, 2) // Processed + original
-        XCTAssertNotNil(imageCache[originalRequest])
-        XCTAssertNotNil(imageCache[request])
-        XCTAssertEqual(dataCache.readCount, 2) // "1", "2"
-        XCTAssertEqual(dataCache.writeCount, 1) // Initial
-        XCTAssertEqual(dataLoader.createdTaskCount, 0)
+        #expect(imageCache.readCount == 3) // Processed + intermediate + original
+        #expect(imageCache.writeCount == 2) // Processed + original
+        #expect(imageCache[originalRequest] != nil)
+        #expect(imageCache[request] != nil)
+        #expect(dataCache.readCount == 2) // "1", "2"
+        #expect(dataCache.writeCount == 1) // Initial
+        #expect(dataLoader.createdTaskCount == 0)
     }
 
-    func testGivenOriginalImageInDiskCache() {
+    @Test func givenOriginalImageInDiskCache() async throws {
         // GIVEN
         pipeline.cache.storeCachedImage(originalImage, for: originalRequest, caches: [.disk])
 
         // WHEN
-        let record = expect(pipeline).toLoadImage(with: request)
-        wait()
-        XCTAssertEqual(record.image?.nk_test_processorIDs, ["1", "2"])
-        XCTAssertEqual(record.response?.cacheType, .disk)
+        let response = try await pipeline.imageTask(with: request).response
+        #expect(response.image.nk_test_processorIDs == ["1", "2"])
+        #expect(response.cacheType == .disk)
 
         // THEN
-        XCTAssertEqual(imageCache.readCount, 3) // Processed + intermediate + original
-        XCTAssertEqual(imageCache.writeCount, 1) // Processed
-        XCTAssertNotNil(imageCache[request])
-        XCTAssertEqual(dataCache.readCount, 3) // "1" + "2" + original
-        XCTAssertEqual(dataCache.writeCount, 1) // Initial
-        XCTAssertEqual(dataLoader.createdTaskCount, 0)
+        #expect(imageCache.readCount == 3) // Processed + intermediate + original
+        #expect(imageCache.writeCount == 1) // Processed
+        #expect(imageCache[request] != nil)
+        #expect(dataCache.readCount == 3) // "1" + "2" + original
+        #expect(dataCache.writeCount == 1) // Initial
+        #expect(dataLoader.createdTaskCount == 0)
     }
 
-    func testPolicyStoreEncodedImagesGivenDataAlreadyStored() {
+    @Test func policyStoreEncodedImagesGivenDataAlreadyStored() async throws {
         // GIVEN
-        pipeline = pipeline.reconfigured {
+        let pipeline = pipeline.reconfigured {
             $0.dataCachePolicy = .storeEncodedImages
         }
 
@@ -340,55 +324,54 @@ class ImagePipelineCacheLayerPriorityTests: XCTestCase {
         imageCache.resetCounters()
 
         // WHEN
-        let record = expect(pipeline).toLoadImage(with: request)
-        wait()
-        XCTAssertNotNil(record.image)
-        XCTAssertEqual(record.response?.cacheType, .disk)
+        let response = try await pipeline.imageTask(with: request).response
+        #expect(response.image != nil)
+        #expect(response.cacheType == .disk)
 
         // THEN
-        XCTAssertEqual(imageCache.readCount, 1)
-        XCTAssertEqual(imageCache.writeCount, 1)
-        XCTAssertEqual(dataCache.readCount, 1)
-        XCTAssertEqual(dataCache.writeCount, 0)
-        XCTAssertEqual(dataLoader.createdTaskCount, 0)
+        #expect(imageCache.readCount == 1)
+        #expect(imageCache.writeCount == 1)
+        #expect(dataCache.readCount == 1)
+        #expect(dataCache.writeCount == 0)
+        #expect(dataLoader.createdTaskCount == 0)
     }
 
     // MARK: ImageRequest.Options
 
-    func testGivenOriginalImageInDiskCacheAndDiskReadsDisabled() {
+    @Test func givenOriginalImageInDiskCacheAndDiskReadsDisabled() async throws {
         // GIVEN
         pipeline.cache.storeCachedImage(originalImage, for: originalRequest, caches: [.disk])
 
         // WHEN
+        var request = request
         request.options.insert(.disableDiskCacheReads)
-        let record = expect(pipeline).toLoadImage(with: request)
-        wait()
-        XCTAssertEqual(record.image?.nk_test_processorIDs, ["1", "2"])
-        XCTAssertNil(record.response?.cacheType)
+        let response = try await pipeline.imageTask(with: request).response
+        #expect(response.image.nk_test_processorIDs == ["1", "2"])
+        #expect(response.cacheType == nil)
 
         // THEN
-        XCTAssertEqual(imageCache.readCount, 3) // Processed + intermediate + original
-        XCTAssertEqual(imageCache.writeCount, 1) // Processed
-        XCTAssertNotNil(imageCache[request])
-        XCTAssertEqual(dataCache.readCount, 0) // Processed + original
-        XCTAssertEqual(dataCache.writeCount, 2) // Initial + processed
-        XCTAssertEqual(dataLoader.createdTaskCount, 1)
+        #expect(imageCache.readCount == 3) // Processed + intermediate + original
+        #expect(imageCache.writeCount == 1) // Processed
+        #expect(imageCache[request] != nil)
+        #expect(dataCache.readCount == 0) // Processed + original
+        #expect(dataCache.writeCount == 2) // Initial + processed
+        #expect(dataLoader.createdTaskCount == 1)
     }
 
-    func testGivenNoImageDataInDiskCacheAndDiskWritesDisabled() {
+    @Test func givenNoImageDataInDiskCacheAndDiskWritesDisabled() async throws {
         // WHEN
+        var request = request
         request.options.insert(.disableDiskCacheWrites)
-        let record = expect(pipeline).toLoadImage(with: request)
-        wait()
-        XCTAssertEqual(record.image?.nk_test_processorIDs, ["1", "2"])
-        XCTAssertNil(record.response?.cacheType)
-        
+        let response = try await pipeline.imageTask(with: request).response
+        #expect(response.image.nk_test_processorIDs == ["1", "2"])
+        #expect(response.cacheType == nil)
+
         // THEN
-        XCTAssertEqual(imageCache.readCount, 3) // Processed + intermediate + original
-        XCTAssertEqual(imageCache.writeCount, 1) // Processed
-        XCTAssertNotNil(imageCache[request])
-        XCTAssertEqual(dataCache.readCount, 3) // "1" + "2" + original
-        XCTAssertEqual(dataCache.writeCount, 0)
-        XCTAssertEqual(dataLoader.createdTaskCount, 1)
+        #expect(imageCache.readCount == 3) // Processed + intermediate + original
+        #expect(imageCache.writeCount == 1) // Processed
+        #expect(imageCache[request] != nil)
+        #expect(dataCache.readCount == 3) // "1" + "2" + original
+        #expect(dataCache.writeCount == 0)
+        #expect(dataLoader.createdTaskCount == 1)
     }
 }

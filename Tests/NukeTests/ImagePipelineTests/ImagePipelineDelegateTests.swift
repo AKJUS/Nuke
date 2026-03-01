@@ -2,23 +2,24 @@
 //
 // Copyright (c) 2015-2026 Alexander Grebenyuk (github.com/kean).
 
-import XCTest
+import Testing
+import Foundation
 @testable import Nuke
 
-class ImagePipelineDelegateTests: XCTestCase {
-    private var dataLoader: MockDataLoader!
-    private var dataCache: MockDataCache!
-    private var pipeline: ImagePipeline!
-    private var delegate: MockImagePipelineDelegate!
+@Suite struct ImagePipelineDelegateTests {
+    private let dataLoader: MockDataLoader
+    private let dataCache: MockDataCache
+    private let pipeline: ImagePipeline
+    private let delegate: MockImagePipelineDelegate
 
-    override func setUp() {
-        super.setUp()
-
-        dataLoader = MockDataLoader()
-        dataCache = MockDataCache()
-        delegate = MockImagePipelineDelegate()
-
-        pipeline = ImagePipeline(delegate: delegate) {
+    init() {
+        let dataLoader = MockDataLoader()
+        let dataCache = MockDataCache()
+        let delegate = MockImagePipelineDelegate()
+        self.dataLoader = dataLoader
+        self.dataCache = dataCache
+        self.delegate = delegate
+        self.pipeline = ImagePipeline(delegate: delegate) {
             $0.dataLoader = dataLoader
             $0.dataCache = dataCache
             $0.dataCachePolicy = .automatic
@@ -27,8 +28,7 @@ class ImagePipelineDelegateTests: XCTestCase {
         }
     }
 
-    @MainActor
-    func testCustomizingDataCacheKey() throws {
+    @Test @MainActor func customizingDataCacheKey() async throws {
         // GIVEN
         let imageURLSmall = URL(string: "https://example.com/image-01-small.jpeg")!
         let imageURLMedium = URL(string: "https://example.com/image-01-medium.jpeg")!
@@ -43,12 +43,11 @@ class ImagePipelineDelegateTests: XCTestCase {
             processors: [.resize(width: 44)],
             userInfo: ["imageId": "image-01-small"]
         )
-        expect(pipeline).toLoadImage(with: requestA)
-        wait()
+        try await pipeline.image(for: requestA)
 
-        let data = try XCTUnwrap(dataCache.cachedData(for: "image-01-small"))
-        let image = try XCTUnwrap(PlatformImage(data: data))
-        XCTAssertEqual(image.sizeInPixels.width, 44 * Screen.scale)
+        let data = try #require(dataCache.cachedData(for: "image-01-small"))
+        let image = try #require(PlatformImage(data: data))
+        #expect(image.sizeInPixels.width == 44 * Screen.scale)
 
         // GIVEN a request for a small image
         let requestB = ImageRequest(
@@ -57,35 +56,26 @@ class ImagePipelineDelegateTests: XCTestCase {
         )
 
         // WHEN/THEN the image is returned from the disk cache
-        expect(pipeline).toLoadImage(with: requestB, completion: { result in
-            guard let image = result.value?.image else {
-                return XCTFail()
-            }
-            XCTAssertEqual(image.sizeInPixels.width, 44 * Screen.scale)
-        })
-        wait()
-        XCTAssertEqual(dataLoader.createdTaskCount, 1)
+        let responseB = try await pipeline.imageTask(with: requestB).response
+        #expect(responseB.image.sizeInPixels.width == 44 * Screen.scale)
+        #expect(dataLoader.createdTaskCount == 1)
     }
 
-    func testDataIsStoredInCache() {
+    @Test func dataIsStoredInCache() async throws {
         // WHEN
-        expect(pipeline).toLoadImage(with: Test.request)
+        try await pipeline.image(for: Test.request)
 
         // THEN
-        wait { _ in
-            XCTAssertFalse(self.dataCache.store.isEmpty)
-        }
+        #expect(!dataCache.store.isEmpty)
     }
 
-    func testDataIsStoredInCacheWhenCacheDisabled() {
+    @Test func dataIsStoredInCacheWhenCacheDisabled() async throws {
         // WHEN
         delegate.isCacheEnabled = false
-        expect(pipeline).toLoadImage(with: Test.request)
+        try await pipeline.image(for: Test.request)
 
         // THEN
-        wait { _ in
-            XCTAssertTrue(self.dataCache.store.isEmpty)
-        }
+        #expect(dataCache.store.isEmpty)
     }
 }
 

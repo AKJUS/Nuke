@@ -2,53 +2,49 @@
 //
 // Copyright (c) 2015-2026 Alexander Grebenyuk (github.com/kean).
 
-import XCTest
+import Testing
+import Foundation
 @testable import Nuke
 
-class ImagePipelineDataCachingTests: XCTestCase {
-    var dataLoader: MockDataLoader!
-    var dataCache: MockDataCache!
-    var pipeline: ImagePipeline!
-    var processorFactory: MockProcessorFactory!
-    
-    override func setUp() {
-        super.setUp()
-        
-        dataCache = MockDataCache()
-        dataLoader = MockDataLoader()
-        
-        pipeline = ImagePipeline {
+@Suite struct ImagePipelineDataCachingTests {
+    let dataLoader: MockDataLoader
+    let dataCache: MockDataCache
+    let pipeline: ImagePipeline
+
+    init() {
+        let dataCache = MockDataCache()
+        let dataLoader = MockDataLoader()
+        self.dataCache = dataCache
+        self.dataLoader = dataLoader
+        self.pipeline = ImagePipeline {
             $0.dataLoader = dataLoader
             $0.dataCache = dataCache
             $0.imageCache = nil
         }
     }
-    
+
     // MARK: - Basics
-    
-    func testImageIsLoaded() {
+
+    @Test func imageIsLoaded() async throws {
         // Given
         dataLoader.queue.isSuspended = true
         dataCache.store[Test.url.absoluteString] = Test.data
-        
+
         // When/Then
-        expect(pipeline).toLoadImage(with: Test.request)
-        wait()
+        try await pipeline.image(for: Test.request)
     }
-    
-    func testDataIsStoredInCache() {
+
+    @Test func dataIsStoredInCache() async throws {
         // When
-        expect(pipeline).toLoadImage(with: Test.request)
-        
+        try await pipeline.image(for: Test.request)
+
         // Then
-        wait { _ in
-            XCTAssertFalse(self.dataCache.store.isEmpty)
-        }
+        #expect(!dataCache.store.isEmpty)
     }
-    
-    func testThumbnailOptionsDataCacheStoresOriginalDataByDefault() throws {
+
+    @Test func thumbnailOptionsDataCacheStoresOriginalDataByDefault() async throws {
         // GIVEN
-        pipeline = pipeline.reconfigured {
+        let pipeline = pipeline.reconfigured {
             $0.dataCachePolicy = .storeOriginalData
             $0.imageCache = MockImageCache()
             $0.debugIsSyncImageEncoding = true
@@ -56,33 +52,31 @@ class ImagePipelineDataCachingTests: XCTestCase {
 
         // WHEN
         let request = ImageRequest(url: Test.url, userInfo: [.thumbnailKey: ImageRequest.ThumbnailOptions(size: CGSize(width: 400, height: 400), unit: .pixels, contentMode: .aspectFit)])
-        expect(pipeline).toLoadImage(with: request)
+        try await pipeline.image(for: request)
 
         // THEN
-        wait()
-
         do { // Check memory cache
             // Image does not exists for the original image
-            XCTAssertNil(pipeline.cache.cachedImage(for: ImageRequest(url: Test.url), caches: [.memory]))
+            #expect(pipeline.cache.cachedImage(for: ImageRequest(url: Test.url), caches: [.memory]) == nil)
 
             // Image exists for thumbnail
-            let thumbnail = try XCTUnwrap(pipeline.cache.cachedImage(for: request, caches: [.memory]))
-            XCTAssertEqual(thumbnail.image.sizeInPixels, CGSize(width: 400, height: 300))
+            let thumbnail = try #require(pipeline.cache.cachedImage(for: request, caches: [.memory]))
+            #expect(thumbnail.image.sizeInPixels == CGSize(width: 400, height: 300))
         }
 
         do { // Check disk cache
             // Data exists for the original image
-            let original = try XCTUnwrap(pipeline.cache.cachedImage(for: ImageRequest(url: Test.url), caches: [.disk]))
-            XCTAssertEqual(original.image.sizeInPixels, CGSize(width: 640, height: 480))
+            let original = try #require(pipeline.cache.cachedImage(for: ImageRequest(url: Test.url), caches: [.disk]))
+            #expect(original.image.sizeInPixels == CGSize(width: 640, height: 480))
 
             // Data does not exist for thumbnail
-            XCTAssertNil(pipeline.cache.cachedData(for: request))
+            #expect(pipeline.cache.cachedData(for: request) == nil)
         }
     }
 
-    func testThumbnailOptionsDataCacheStoresOriginalDataWithStoreAllPolicy() throws {
+    @Test func thumbnailOptionsDataCacheStoresOriginalDataWithStoreAllPolicy() async throws {
         // GIVEN
-        pipeline = pipeline.reconfigured {
+        let pipeline = pipeline.reconfigured {
             $0.dataCachePolicy = .storeAll
             $0.imageCache = MockImageCache()
             $0.debugIsSyncImageEncoding = true
@@ -90,603 +84,560 @@ class ImagePipelineDataCachingTests: XCTestCase {
 
         // WHEN
         let request = ImageRequest(url: Test.url, userInfo: [.thumbnailKey: ImageRequest.ThumbnailOptions(size: CGSize(width: 400, height: 400), unit: .pixels, contentMode: .aspectFit)])
-        expect(pipeline).toLoadImage(with: request)
+        try await pipeline.image(for: request)
 
         // THEN
-        wait()
-
         do { // Check memory cache
             // Image does not exists for the original image
-            XCTAssertNil(pipeline.cache.cachedImage(for: ImageRequest(url: Test.url), caches: [.memory]))
+            #expect(pipeline.cache.cachedImage(for: ImageRequest(url: Test.url), caches: [.memory]) == nil)
 
             // Image exists for thumbnail
-            let thumbnail = try XCTUnwrap(pipeline.cache.cachedImage(for: request, caches: [.memory]))
-            XCTAssertEqual(thumbnail.image.sizeInPixels, CGSize(width: 400, height: 300))
+            let thumbnail = try #require(pipeline.cache.cachedImage(for: request, caches: [.memory]))
+            #expect(thumbnail.image.sizeInPixels == CGSize(width: 400, height: 300))
         }
 
         do { // Check disk cache
             // Data exists for the original image
-            let original = try XCTUnwrap(pipeline.cache.cachedImage(for: ImageRequest(url: Test.url), caches: [.disk]))
-            XCTAssertEqual(original.image.sizeInPixels, CGSize(width: 640, height: 480))
+            let original = try #require(pipeline.cache.cachedImage(for: ImageRequest(url: Test.url), caches: [.disk]))
+            #expect(original.image.sizeInPixels == CGSize(width: 640, height: 480))
 
             // Data exists for thumbnail
-            let thumbnail = try XCTUnwrap(pipeline.cache.cachedImage(for: request, caches: [.disk]))
-            XCTAssertEqual(thumbnail.image.sizeInPixels, CGSize(width: 400, height: 300))
+            let thumbnail = try #require(pipeline.cache.cachedImage(for: request, caches: [.disk]))
+            #expect(thumbnail.image.sizeInPixels == CGSize(width: 400, height: 300))
         }
     }
 
     // MARK: - Updating Priority
-    
-    func testPriorityUpdated() {
+
+    @Test func priorityUpdated() async throws {
         // Given
         let queue = pipeline.configuration.dataLoadingQueue
         queue.isSuspended = true
-        
+
         let request = Test.request
-        XCTAssertEqual(request.priority, .normal)
-        
-        let observer = self.expect(queue).toEnqueueOperationsWithCount(1)
-        
-        let task = pipeline.loadImage(with: request) { _ in }
-        wait() // Wait till the operation is created.
-        
+        #expect(request.priority == .normal)
+
+        let observer = OperationQueueObserver(queue: queue)
+        let task = pipeline.imageTask(with: request)
+        await waitForOperations(on: observer, count: 1)
+
         // When/Then
-        guard let operation = observer.operations.first else {
-            return XCTFail("No operations gor registered")
+        let operation = try #require(observer.operations.first)
+        await waitForPriorityChange(of: operation, to: .high) {
+            task.priority = .high
         }
-        expect(operation).toUpdatePriority()
-        task.priority = .high
-        
-        wait()
     }
-    
+
     // MARK: - Cancellation
-    
-    func testOperationCancelled() {
+
+    @Test func operationCancelled() async throws {
         // Given
         let queue = pipeline.configuration.dataLoadingQueue
         queue.isSuspended = true
-        let observer = self.expect(queue).toEnqueueOperationsWithCount(1)
-        let task = pipeline.loadImage(with: Test.request) { _ in }
-        wait() // Wait till the operation is created.
-        
+        let observer = OperationQueueObserver(queue: queue)
+        let task = pipeline.imageTask(with: Test.request)
+        await waitForOperations(on: observer, count: 1)
+
         // When/Then
-        guard let operation = observer.operations.first else {
-            return XCTFail("No operations gor registered")
+        let operation = try #require(observer.operations.first)
+        await waitForCancellation(of: operation) {
+            task.cancel()
         }
-        expect(operation).toCancel()
-        task.cancel()
-        wait() // Wait till operation is created
     }
-    
+
     // MARK: ImageRequest.CachePolicy
-    
-    func testReloadIgnoringCachedData() {
+
+    @Test func reloadIgnoringCachedData() async throws {
         // Given
         dataCache.store[Test.url.absoluteString] = Test.data
-        
+
         var request = Test.request
         request.options = [.reloadIgnoringCachedData]
-        
+
         // When
-        expect(pipeline).toLoadImage(with: request)
-        wait()
-        
+        try await pipeline.image(for: request)
+
         // Then
-        XCTAssertEqual(dataLoader.createdTaskCount, 1)
+        #expect(dataLoader.createdTaskCount == 1)
     }
-    
-    func testLoadFromCacheOnlyDataCache() {
+
+    @Test func loadFromCacheOnlyDataCache() async throws {
         // Given
         dataCache.store[Test.url.absoluteString] = Test.data
-        
+
         var request = Test.request
         request.options = [.returnCacheDataDontLoad]
-        
+
         // When
-        expect(pipeline).toLoadImage(with: request)
-        wait()
-        
+        try await pipeline.image(for: request)
+
         // Then
-        XCTAssertEqual(dataLoader.createdTaskCount, 0)
+        #expect(dataLoader.createdTaskCount == 0)
     }
-    
-    func testLoadFromCacheOnlyMemoryCache() {
+
+    @Test func loadFromCacheOnlyMemoryCache() async throws {
         // Given
         let imageCache = MockImageCache()
         imageCache[Test.request] = ImageContainer(image: Test.image)
-        pipeline = pipeline.reconfigured {
+        let pipeline = pipeline.reconfigured {
             $0.imageCache = imageCache
         }
-        
+
         var request = Test.request
         request.options = [.returnCacheDataDontLoad]
-        
+
         // When
-        expect(pipeline).toLoadImage(with: request)
-        wait()
-        
+        try await pipeline.image(for: request)
+
         // Then
-        XCTAssertEqual(dataLoader.createdTaskCount, 0)
+        #expect(dataLoader.createdTaskCount == 0)
     }
-    
-    func testLoadImageFromCacheOnlyFailsIfNoCache() {
+
+    @Test func loadImageFromCacheOnlyFailsIfNoCache() async {
         // GIVEN no cached data and download disabled
         var request = Test.request
         request.options = [.returnCacheDataDontLoad]
-        
-        // WHEN
-        expect(pipeline).toFailRequest(request, with: .dataMissingInCache)
-        wait()
-        
-        // THEN
-        XCTAssertEqual(dataLoader.createdTaskCount, 0)
+
+        // WHEN/THEN
+        await #expect {
+            try await pipeline.image(for: request)
+        } throws: {
+            ($0 as? ImagePipeline.Error) == .dataMissingInCache
+        }
+        #expect(dataLoader.createdTaskCount == 0)
     }
-    
-    func testLoadDataFromCacheOnlyFailsIfNoCache() {
+
+    @Test func loadDataFromCacheOnlyFailsIfNoCache() async {
         // GIVEN no cached data and download disabled
         var request = Test.request
         request.options = [.returnCacheDataDontLoad]
-        
-        // WHEN
-        let output = expect(pipeline).toLoadData(with: request)
-        wait()
-        
-        XCTAssertEqual(output.result?.error, .dataMissingInCache)
-        
-        // THEN
-        XCTAssertEqual(dataLoader.createdTaskCount, 0)
+
+        // WHEN/THEN
+        await #expect {
+            try await pipeline.data(for: request)
+        } throws: {
+            ($0 as? ImagePipeline.Error) == .dataMissingInCache
+        }
+        #expect(dataLoader.createdTaskCount == 0)
     }
 }
 
-class ImagePipelineDataCachePolicyTests: XCTestCase {
-    var dataLoader: MockDataLoader!
-    var dataCache: MockDataCache!
-    var pipeline: ImagePipeline!
-    var encoder: MockImageEncoder!
-    var processorFactory: MockProcessorFactory!
-    var request: ImageRequest!
-    
-    override func setUp() {
-        super.setUp()
-        
-        dataCache = MockDataCache()
-        dataLoader = MockDataLoader()
-        let encoder = MockImageEncoder(result: Test.data(name: "fixture-tiny", extension: "jpeg"))
-        self.encoder = encoder
+@Suite struct ImagePipelineDataCachePolicyTests {
+    let dataLoader: MockDataLoader
+    let dataCache: MockDataCache
+    let pipeline: ImagePipeline
+    let encoder: MockImageEncoder
+    let processorFactory: MockProcessorFactory
+    let request: ImageRequest
 
-        pipeline = ImagePipeline {
+    init() {
+        let dataCache = MockDataCache()
+        let dataLoader = MockDataLoader()
+        let encoder = MockImageEncoder(result: Test.data(name: "fixture-tiny", extension: "jpeg"))
+        let processorFactory = MockProcessorFactory()
+        self.dataCache = dataCache
+        self.dataLoader = dataLoader
+        self.encoder = encoder
+        self.processorFactory = processorFactory
+        self.pipeline = ImagePipeline {
             $0.dataLoader = dataLoader
             $0.dataCache = dataCache
             $0.imageCache = nil
             $0.makeImageEncoder = { _ in encoder }
             $0.debugIsSyncImageEncoding = true
         }
-        
-        processorFactory = MockProcessorFactory()
-        
-        request = ImageRequest(url: Test.url, processors: [processorFactory.make(id: "1")])
+        self.request = ImageRequest(url: Test.url, processors: [processorFactory.make(id: "1")])
     }
-    
+
     // MARK: - Basics
-    
-    func testProcessedImageLoadedFromDataCache() {
+
+    @Test func processedImageLoadedFromDataCache() async throws {
         // Given processed image data stored in data cache
         dataLoader.queue.isSuspended = true
         dataCache.store[Test.url.absoluteString + "1"] = Test.data
-        
+
         // When/Then
-        expect(pipeline).toLoadImage(with: request)
-        wait()
-        
+        try await pipeline.image(for: request)
+
         // Then
-        XCTAssertEqual(processorFactory.numberOfProcessorsApplied, 0, "Expected no processors to be applied")
+        #expect(processorFactory.numberOfProcessorsApplied == 0)
     }
-    
+
 #if !os(macOS)
-    func testProcessedImageIsDecompressed() {
+    @Test func processedImageIsDecompressed() async throws {
         // Given processed image data stored in data cache
         dataLoader.queue.isSuspended = true
         dataCache.store[Test.url.absoluteString + "1"] = Test.data
-        
+
         // When/Then
-        expect(pipeline).toLoadImage(with: request) { result in
-            guard let image = result.value?.image else {
-                return XCTFail("Expected image to be loaded")
-            }
-            
-            XCTAssertNil(ImageDecompression.isDecompressionNeeded(for: image))
-        }
-        wait()
+        let response = try await pipeline.imageTask(with: request).response
+        let image = response.image
+        #expect(ImageDecompression.isDecompressionNeeded(for: image) == nil)
     }
-    
-    func testProcessedImageIsStoredInMemoryCache() throws {
+
+    @Test func processedImageIsStoredInMemoryCache() async throws {
         // Given processed image data stored in data cache
         let cache = MockImageCache()
-        pipeline = pipeline.reconfigured {
+        let pipeline = pipeline.reconfigured {
             $0.imageCache = cache
         }
         dataLoader.queue.isSuspended = true
         dataCache.store[Test.url.absoluteString + "1"] = Test.data
-        
+
         // When
-        expect(pipeline).toLoadImage(with: request)
-        wait()
-        
+        try await pipeline.image(for: request)
+
         // Then decompressed image is stored in disk cache
         let container = cache[request]
-        XCTAssertNotNil(container)
-        
-        let image = try XCTUnwrap(container?.image)
-        XCTAssertNil(ImageDecompression.isDecompressionNeeded(for: image))
+        #expect(container != nil)
+
+        let image = try #require(container?.image)
+        #expect(ImageDecompression.isDecompressionNeeded(for: image) == nil)
     }
-    
-    func testProcessedImageNotDecompressedWhenDecompressionDisabled() {
+
+    @Test func processedImageNotDecompressedWhenDecompressionDisabled() async throws {
         // Given pipeline with decompression disabled
-        pipeline = pipeline.reconfigured {
+        let pipeline = pipeline.reconfigured {
             $0.isDecompressionEnabled = false
         }
-        
+
         // Given processed image data stored in data cache
         dataLoader.queue.isSuspended = true
         dataCache.store[Test.url.absoluteString + "1"] = Test.data
-        
+
         // When/Then
-        expect(pipeline).toLoadImage(with: request) { result in
-            guard let image = result.value?.image else {
-                return XCTFail("Expected image to be loaded")
-            }
-            
-            let isDecompressionNeeded = ImageDecompression.isDecompressionNeeded(for: image)
-            XCTAssertEqual(isDecompressionNeeded, true, "Expected image to still be marked as non decompressed")
-        }
-        wait()
+        let response = try await pipeline.imageTask(with: request).response
+        let image = response.image
+        let isDecompressionNeeded = ImageDecompression.isDecompressionNeeded(for: image)
+        #expect(isDecompressionNeeded == true)
     }
 #endif
-    
+
     // MARK: DataCachPolicy.automatic
-    
-    func testPolicyAutomaticGivenRequestWithProcessors() {
+
+    @Test func policyAutomaticGivenRequestWithProcessors() async throws {
         // GIVEN
-        pipeline = pipeline.reconfigured {
+        let pipeline = pipeline.reconfigured {
             $0.dataCachePolicy = .automatic
         }
-        
+
         // GIVEN request with a processor
         let request = ImageRequest(url: Test.url, processors: [MockImageProcessor(id: "p1")])
-        
+
         // WHEN
-        expect(pipeline).toLoadImage(with: request)
-        wait()
-        
+        try await pipeline.image(for: request)
+
         // THEN encoded processed image is stored in disk cache
-        XCTAssertEqual(encoder.encodeCount, 1)
-        XCTAssertNotNil(dataCache.cachedData(for: Test.url.absoluteString + "p1"))
-        XCTAssertEqual(dataCache.writeCount, 1)
-        XCTAssertEqual(dataCache.store.count, 1)
+        #expect(encoder.encodeCount == 1)
+        #expect(dataCache.cachedData(for: Test.url.absoluteString + "p1") != nil)
+        #expect(dataCache.writeCount == 1)
+        #expect(dataCache.store.count == 1)
     }
-    
-    func testPolicyAutomaticGivenRequestWithoutProcessors() {
+
+    @Test func policyAutomaticGivenRequestWithoutProcessors() async throws {
         // GIVEN
-        pipeline = pipeline.reconfigured {
+        let pipeline = pipeline.reconfigured {
             $0.dataCachePolicy = .automatic
         }
-        
+
         // GIVEN request without a processor
         let request = ImageRequest(url: Test.url)
-        
+
         // WHEN
-        expect(pipeline).toLoadImage(with: request)
-        wait()
-        
+        try await pipeline.image(for: request)
+
         // THEN original image data is stored in disk cache
-        XCTAssertEqual(encoder.encodeCount, 0)
-        XCTAssertNotNil(dataCache.cachedData(for: Test.url.absoluteString))
-        XCTAssertEqual(dataCache.writeCount, 1)
-        XCTAssertEqual(dataCache.store.count, 1)
+        #expect(encoder.encodeCount == 0)
+        #expect(dataCache.cachedData(for: Test.url.absoluteString) != nil)
+        #expect(dataCache.writeCount == 1)
+        #expect(dataCache.store.count == 1)
     }
-    
-    func testPolicyAutomaticGivenTwoRequests() {
+
+    @Test func policyAutomaticGivenTwoRequests() async throws {
         // GIVEN
-        pipeline = pipeline.reconfigured {
+        let pipeline = pipeline.reconfigured {
             $0.dataCachePolicy = .automatic
         }
-        
+
         // WHEN
-        suspendDataLoading(for: pipeline, expectedRequestCount: 2) {
-            expect(pipeline).toLoadImage(with: ImageRequest(url: Test.url, processors: [MockImageProcessor(id: "p1")]))
-            expect(pipeline).toLoadImage(with: ImageRequest(url: Test.url))
-        }
-        wait()
-        
+        try await pipeline.image(for: ImageRequest(url: Test.url, processors: [MockImageProcessor(id: "p1")]))
+        try await pipeline.image(for: ImageRequest(url: Test.url))
+
         // THEN
         // encoded processed image is stored in disk cache
         // original image data is stored in disk cache
-        XCTAssertEqual(encoder.encodeCount, 1)
-        XCTAssertNotNil(dataCache.cachedData(for: Test.url.absoluteString + "p1"))
-        XCTAssertNotNil(dataCache.cachedData(for: Test.url.absoluteString))
-        XCTAssertEqual(dataCache.writeCount, 2)
-        XCTAssertEqual(dataCache.store.count, 2)
+        #expect(encoder.encodeCount == 1)
+        #expect(dataCache.cachedData(for: Test.url.absoluteString + "p1") != nil)
+        #expect(dataCache.cachedData(for: Test.url.absoluteString) != nil)
+        #expect(dataCache.writeCount == 2)
+        #expect(dataCache.store.count == 2)
     }
-    
-    func testPolicyAutomaticGivenOriginalImageInMemoryCache() {
+
+    @Test func policyAutomaticGivenOriginalImageInMemoryCache() async throws {
         // GIVEN
         let imageCache = MockImageCache()
-        pipeline = pipeline.reconfigured {
+        let pipeline = pipeline.reconfigured {
             $0.dataCachePolicy = .automatic
             $0.imageCache = imageCache
         }
         imageCache[ImageRequest(url: Test.url)] = Test.container
-        
+
         // WHEN
-        expect(pipeline).toLoadImage(with: ImageRequest(url: Test.url, processors: [MockImageProcessor(id: "p1")]))
-        wait()
-        
+        try await pipeline.image(for: ImageRequest(url: Test.url, processors: [MockImageProcessor(id: "p1")]))
+
         // THEN
         // encoded processed image is stored in disk cache
-        XCTAssertEqual(encoder.encodeCount, 1)
-        XCTAssertNotNil(dataCache.cachedData(for: Test.url.absoluteString + "p1"))
-        XCTAssertEqual(dataCache.writeCount, 1)
-        XCTAssertEqual(dataCache.store.count, 1)
-        XCTAssertEqual(dataLoader.createdTaskCount, 0)
+        #expect(encoder.encodeCount == 1)
+        #expect(dataCache.cachedData(for: Test.url.absoluteString + "p1") != nil)
+        #expect(dataCache.writeCount == 1)
+        #expect(dataCache.store.count == 1)
+        #expect(dataLoader.createdTaskCount == 0)
     }
-    
+
     // MARK: DataCachPolicy.storeEncodedImages
-    
-    func testPolicyStoreEncodedImagesGivenRequestWithProcessors() {
+
+    @Test func policyStoreEncodedImagesGivenRequestWithProcessors() async throws {
         // GIVEN
-        pipeline = pipeline.reconfigured {
+        let pipeline = pipeline.reconfigured {
             $0.dataCachePolicy = .storeEncodedImages
         }
-        
+
         // GIVEN request with a processor
         let request = ImageRequest(url: Test.url, processors: [MockImageProcessor(id: "p1")])
-        
+
         // WHEN
-        expect(pipeline).toLoadImage(with: request)
-        wait()
-        
+        try await pipeline.image(for: request)
+
         // THEN encoded processed image is stored in disk cache
-        XCTAssertEqual(encoder.encodeCount, 1)
-        XCTAssertNotNil(dataCache.cachedData(for: Test.url.absoluteString + "p1"))
-        XCTAssertEqual(dataCache.writeCount, 1)
-        XCTAssertEqual(dataCache.store.count, 1)
+        #expect(encoder.encodeCount == 1)
+        #expect(dataCache.cachedData(for: Test.url.absoluteString + "p1") != nil)
+        #expect(dataCache.writeCount == 1)
+        #expect(dataCache.store.count == 1)
     }
-    
-    func testPolicyStoreEncodedImagesGivenRequestWithoutProcessors() {
+
+    @Test func policyStoreEncodedImagesGivenRequestWithoutProcessors() async throws {
         // GIVEN
-        pipeline = pipeline.reconfigured {
+        let pipeline = pipeline.reconfigured {
             $0.dataCachePolicy = .storeEncodedImages
         }
-        
+
         // GIVEN request without a processor
         let request = ImageRequest(url: Test.url)
-        
+
         // WHEN
-        expect(pipeline).toLoadImage(with: request)
-        wait()
-        
+        try await pipeline.image(for: request)
+
         // THEN
-        XCTAssertEqual(encoder.encodeCount, 1)
-        XCTAssertNotNil(dataCache.cachedData(for: Test.url.absoluteString))
-        XCTAssertEqual(dataCache.writeCount, 1)
-        XCTAssertEqual(dataCache.store.count, 1)
+        #expect(encoder.encodeCount == 1)
+        #expect(dataCache.cachedData(for: Test.url.absoluteString) != nil)
+        #expect(dataCache.writeCount == 1)
+        #expect(dataCache.store.count == 1)
     }
-    
-    func testPolicyStoreEncodedImagesGivenTwoRequests() {
+
+    @Test func policyStoreEncodedImagesGivenTwoRequests() async throws {
         // GIVEN
-        pipeline = pipeline.reconfigured {
+        let pipeline = pipeline.reconfigured {
             $0.dataCachePolicy = .storeEncodedImages
         }
-        
+
         // WHEN
-        suspendDataLoading(for: pipeline, expectedRequestCount: 2) {
-            expect(pipeline).toLoadImage(with: ImageRequest(url: Test.url, processors: [MockImageProcessor(id: "p1")]))
-            expect(pipeline).toLoadImage(with: ImageRequest(url: Test.url))
-        }
-        wait()
-        
+        try await pipeline.image(for: ImageRequest(url: Test.url, processors: [MockImageProcessor(id: "p1")]))
+        try await pipeline.image(for: ImageRequest(url: Test.url))
+
         // THEN
         // encoded processed image is stored in disk cache
         // encoded original image is stored in disk cache
-        XCTAssertEqual(encoder.encodeCount, 2)
-        XCTAssertNotNil(dataCache.cachedData(for: Test.url.absoluteString + "p1"))
-        XCTAssertNotNil(dataCache.cachedData(for: Test.url.absoluteString))
-        XCTAssertEqual(dataCache.writeCount, 2)
-        XCTAssertEqual(dataCache.store.count, 2)
+        #expect(encoder.encodeCount == 2)
+        #expect(dataCache.cachedData(for: Test.url.absoluteString + "p1") != nil)
+        #expect(dataCache.cachedData(for: Test.url.absoluteString) != nil)
+        #expect(dataCache.writeCount == 2)
+        #expect(dataCache.store.count == 2)
     }
-    
+
     // MARK: DataCachPolicy.storeOriginalData
-    
-    func testPolicyStoreOriginalDataGivenRequestWithProcessors() {
+
+    @Test func policyStoreOriginalDataGivenRequestWithProcessors() async throws {
         // GIVEN
-        pipeline = pipeline.reconfigured {
+        let pipeline = pipeline.reconfigured {
             $0.dataCachePolicy = .storeOriginalData
         }
-        
+
         // GIVEN request with a processor
         let request = ImageRequest(url: Test.url, processors: [MockImageProcessor(id: "p1")])
-        
+
         // WHEN
-        expect(pipeline).toLoadImage(with: request)
-        wait()
-        
+        try await pipeline.image(for: request)
+
         // THEN encoded processed image is stored in disk cache
-        XCTAssertEqual(encoder.encodeCount, 0)
-        XCTAssertNotNil(dataCache.cachedData(for: Test.url.absoluteString))
-        XCTAssertEqual(dataCache.writeCount, 1)
-        XCTAssertEqual(dataCache.store.count, 1)
+        #expect(encoder.encodeCount == 0)
+        #expect(dataCache.cachedData(for: Test.url.absoluteString) != nil)
+        #expect(dataCache.writeCount == 1)
+        #expect(dataCache.store.count == 1)
     }
-    
-    func testPolicyStoreOriginalDataGivenRequestWithoutProcessors() {
+
+    @Test func policyStoreOriginalDataGivenRequestWithoutProcessors() async throws {
         // GIVEN
-        pipeline = pipeline.reconfigured {
+        let pipeline = pipeline.reconfigured {
             $0.dataCachePolicy = .storeOriginalData
         }
-        
+
         // GIVEN request without a processor
         let request = ImageRequest(url: Test.url)
-        
+
         // WHEN
-        expect(pipeline).toLoadImage(with: request)
-        wait()
-        
+        try await pipeline.image(for: request)
+
         // THEN original image data is stored in disk cache
-        XCTAssertEqual(encoder.encodeCount, 0)
-        XCTAssertNotNil(dataCache.cachedData(for: Test.url.absoluteString))
-        XCTAssertEqual(dataCache.writeCount, 1)
-        XCTAssertEqual(dataCache.store.count, 1)
+        #expect(encoder.encodeCount == 0)
+        #expect(dataCache.cachedData(for: Test.url.absoluteString) != nil)
+        #expect(dataCache.writeCount == 1)
+        #expect(dataCache.store.count == 1)
     }
-    
-    func testPolicyStoreOriginalDataGivenTwoRequests() {
+
+    @Test func policyStoreOriginalDataGivenTwoRequests() async throws {
         // GIVEN
-        pipeline = pipeline.reconfigured {
+        let pipeline = pipeline.reconfigured {
             $0.dataCachePolicy = .storeOriginalData
         }
-        
+
         // WHEN
-        suspendDataLoading(for: pipeline, expectedRequestCount: 2) {
-            expect(pipeline).toLoadImage(with: ImageRequest(url: Test.url, processors: [MockImageProcessor(id: "p1")]))
-            expect(pipeline).toLoadImage(with: ImageRequest(url: Test.url))
+        let (task1, task2) = await withSuspendedDataLoading(for: pipeline, expectedCount: 2) {
+            (pipeline.imageTask(with: ImageRequest(url: Test.url, processors: [MockImageProcessor(id: "p1")])),
+             pipeline.imageTask(with: ImageRequest(url: Test.url)))
         }
-        wait()
-        
+        _ = try await task1.response
+        _ = try await task2.response
+
         // THEN
         // encoded processed image is stored in disk cache
         // encoded original image is stored in disk cache
-        XCTAssertEqual(encoder.encodeCount, 0)
-        XCTAssertNotNil(dataCache.cachedData(for: Test.url.absoluteString))
-        XCTAssertEqual(dataCache.writeCount, 1)
-        XCTAssertEqual(dataCache.store.count, 1)
+        #expect(encoder.encodeCount == 0)
+        #expect(dataCache.cachedData(for: Test.url.absoluteString) != nil)
+        #expect(dataCache.writeCount == 1)
+        #expect(dataCache.store.count == 1)
     }
-    
+
     // MARK: DataCachPolicy.storeAll
-    
-    func testPolicyStoreAllGivenRequestWithProcessors() {
+
+    @Test func policyStoreAllGivenRequestWithProcessors() async throws {
         // GIVEN
-        pipeline = pipeline.reconfigured {
+        let pipeline = pipeline.reconfigured {
             $0.dataCachePolicy = .storeAll
         }
-        
+
         // GIVEN request with a processor
         let request = ImageRequest(url: Test.url, processors: [MockImageProcessor(id: "p1")])
-        
+
         // WHEN
-        expect(pipeline).toLoadImage(with: request)
-        wait()
-        
+        try await pipeline.image(for: request)
+
         // THEN encoded processed image is stored in disk cache and
         // original image data stored in disk cache
-        XCTAssertEqual(encoder.encodeCount, 1)
-        XCTAssertNotNil(dataCache.cachedData(for: Test.url.absoluteString + "p1"))
-        XCTAssertNotNil(dataCache.cachedData(for: Test.url.absoluteString))
-        XCTAssertEqual(dataCache.writeCount, 2)
-        XCTAssertEqual(dataCache.store.count, 2)
+        #expect(encoder.encodeCount == 1)
+        #expect(dataCache.cachedData(for: Test.url.absoluteString + "p1") != nil)
+        #expect(dataCache.cachedData(for: Test.url.absoluteString) != nil)
+        #expect(dataCache.writeCount == 2)
+        #expect(dataCache.store.count == 2)
     }
-    
-    func testPolicyStoreAllGivenRequestWithoutProcessors() {
+
+    @Test func policyStoreAllGivenRequestWithoutProcessors() async throws {
         // GIVEN
-        pipeline = pipeline.reconfigured {
+        let pipeline = pipeline.reconfigured {
             $0.dataCachePolicy = .storeAll
         }
-        
+
         // GIVEN request without a processor
         let request = ImageRequest(url: Test.url)
-        
+
         // WHEN
-        expect(pipeline).toLoadImage(with: request)
-        wait()
-        
+        try await pipeline.image(for: request)
+
         // THEN original image data is stored in disk cache
-        XCTAssertEqual(encoder.encodeCount, 0)
-        XCTAssertNotNil(dataCache.cachedData(for: Test.url.absoluteString))
-        XCTAssertEqual(dataCache.writeCount, 1)
-        XCTAssertEqual(dataCache.store.count, 1)
+        #expect(encoder.encodeCount == 0)
+        #expect(dataCache.cachedData(for: Test.url.absoluteString) != nil)
+        #expect(dataCache.writeCount == 1)
+        #expect(dataCache.store.count == 1)
     }
-    
-    func testPolicyStoreAllGivenTwoRequests() {
+
+    @Test func policyStoreAllGivenTwoRequests() async throws {
         // GIVEN
-        pipeline = pipeline.reconfigured {
+        let pipeline = pipeline.reconfigured {
             $0.dataCachePolicy = .storeAll
         }
-        
+
         // WHEN
-        expect(pipeline).toLoadImage(with: ImageRequest(url: Test.url, processors: [MockImageProcessor(id: "p1")]))
-        expect(pipeline).toLoadImage(with: ImageRequest(url: Test.url))
-        wait()
-        
+        try await pipeline.image(for: ImageRequest(url: Test.url, processors: [MockImageProcessor(id: "p1")]))
+        try await pipeline.image(for: ImageRequest(url: Test.url))
+
         // THEN
         // encoded processed image is stored in disk cache
         // original image data is stored in disk cache
-        XCTAssertEqual(encoder.encodeCount, 1)
-        XCTAssertNotNil(dataCache.cachedData(for: Test.url.absoluteString + "p1"))
-        XCTAssertNotNil(dataCache.cachedData(for: Test.url.absoluteString))
-        XCTAssertEqual(dataCache.writeCount, 2)
-        XCTAssertEqual(dataCache.store.count, 2)
+        #expect(encoder.encodeCount == 1)
+        #expect(dataCache.cachedData(for: Test.url.absoluteString + "p1") != nil)
+        #expect(dataCache.cachedData(for: Test.url.absoluteString) != nil)
+        #expect(dataCache.writeCount == 2)
+        #expect(dataCache.store.count == 2)
     }
-    
+
     // MARK: Local Resources
 
-    func testImagesFromLocalStorageNotCached() {
+    @Test func imagesFromLocalStorageNotCached() async throws {
         // GIVEN
-        pipeline = pipeline.reconfigured {
+        let pipeline = pipeline.reconfigured {
             $0.dataCachePolicy = .automatic
         }
-        
+
         // GIVEN request without a processor
         let request = ImageRequest(url: Test.url(forResource: "fixture", extension: "jpeg"))
 
         // WHEN
-        expect(pipeline).toLoadImage(with: request)
-        wait()
-        
+        try await pipeline.image(for: request)
+
         // THEN original image data is stored in disk cache
-        XCTAssertEqual(encoder.encodeCount, 0)
-        XCTAssertEqual(dataCache.writeCount, 0)
-        XCTAssertEqual(dataCache.store.count, 0)
+        #expect(encoder.encodeCount == 0)
+        #expect(dataCache.writeCount == 0)
+        #expect(dataCache.store.count == 0)
     }
-    
-    func testProcessedImagesFromLocalStorageAreCached() {
+
+    @Test func processedImagesFromLocalStorageAreCached() async throws {
         // GIVEN
-        pipeline = pipeline.reconfigured {
+        let pipeline = pipeline.reconfigured {
             $0.dataCachePolicy = .automatic
         }
-        
+
         // GIVEN request with a processor
-        let request = ImageRequest(url: Test.url(forResource: "fixture", extension: "jpeg") ,processors: [.resize(width: 100)])
+        let request = ImageRequest(url: Test.url(forResource: "fixture", extension: "jpeg"), processors: [.resize(width: 100)])
 
         // WHEN
-        expect(pipeline).toLoadImage(with: request)
-        wait()
-        
+        try await pipeline.image(for: request)
+
         // THEN processed image is stored in disk cache
-        XCTAssertEqual(encoder.encodeCount, 1)
-        XCTAssertEqual(dataCache.writeCount, 1)
-        XCTAssertEqual(dataCache.store.count, 1)
+        #expect(encoder.encodeCount == 1)
+        #expect(dataCache.writeCount == 1)
+        #expect(dataCache.store.count == 1)
     }
-    
-    func testImagesFromMemoryNotCached() {
+
+    @Test func imagesFromMemoryNotCached() async throws {
         // GIVEN
-        pipeline = pipeline.reconfigured {
+        let pipeline = pipeline.reconfigured {
             $0.dataCachePolicy = .automatic
         }
-        
+
         // GIVEN request without a processor
         let request = ImageRequest(url: Test.url(forResource: "fixture", extension: "jpeg"))
 
         // WHEN
-        expect(pipeline).toLoadImage(with: request)
-        wait()
-        
+        try await pipeline.image(for: request)
+
         // THEN original image data is stored in disk cache
-        XCTAssertEqual(encoder.encodeCount, 0)
-        XCTAssertEqual(dataCache.writeCount, 0)
-        XCTAssertEqual(dataCache.store.count, 0)
+        #expect(encoder.encodeCount == 0)
+        #expect(dataCache.writeCount == 0)
+        #expect(dataCache.store.count == 0)
     }
 
-    func testImagesFromData() {
+    @Test func imagesFromData() async throws {
         // GIVEN
-        pipeline = pipeline.reconfigured {
+        let pipeline = pipeline.reconfigured {
             $0.dataCachePolicy = .automatic
         }
 
@@ -696,62 +647,58 @@ class ImagePipelineDataCachePolicyTests: XCTestCase {
         let request = ImageRequest(url: url)
 
         // WHEN
-        expect(pipeline).toLoadImage(with: request)
-        wait()
+        try await pipeline.image(for: request)
 
         // THEN original image data is stored in disk cache
-        XCTAssertEqual(encoder.encodeCount, 0)
-        XCTAssertEqual(dataCache.writeCount, 0)
-        XCTAssertEqual(dataCache.store.count, 0)
+        #expect(encoder.encodeCount == 0)
+        #expect(dataCache.writeCount == 0)
+        #expect(dataCache.store.count == 0)
     }
 
     // MARK: Misc
-    
-    func testSetCustomImageEncoder() {
+
+    @Test func setCustomImageEncoder() async throws {
         struct MockImageEncoder: ImageEncoding, @unchecked Sendable {
             let closure: (PlatformImage) -> Data?
-            
+
             func encode(_ image: PlatformImage) -> Data? {
                 return closure(image)
             }
         }
-        
+
         // Given
-        var isCustomEncoderCalled = false
+        nonisolated(unsafe) var isCustomEncoderCalled = false
         let encoder = MockImageEncoder { _ in
             isCustomEncoderCalled = true
             return nil
         }
-        
-        pipeline = pipeline.reconfigured {
+
+        let pipeline = pipeline.reconfigured {
             $0.dataCachePolicy = .automatic
             $0.makeImageEncoder = { _ in
                 return encoder
             }
         }
-        
+
         // When
-        expect(pipeline).toLoadImage(with: request)
-        
+        try await pipeline.image(for: request)
+
         // Then
-        wait { _ in
-            XCTAssertTrue(isCustomEncoderCalled)
-            XCTAssertNil(self.dataCache.cachedData(for: Test.url.absoluteString + "1"), "Expected processed image data to not be stored")
-        }
+        #expect(isCustomEncoderCalled)
+        #expect(dataCache.cachedData(for: Test.url.absoluteString + "1") == nil)
     }
 
     // MARK: Integration with Thumbnail Feature
 
-    func testOriginalDataStoredWhenThumbnailRequested() {
+    @Test func originalDataStoredWhenThumbnailRequested() async throws {
         // GIVEN
         let options = ImageRequest.ThumbnailOptions(maxPixelSize: 400)
         let request = ImageRequest(url: Test.url, userInfo: [.thumbnailKey: options])
 
         // WHEN
-        expect(pipeline).toLoadImage(with: request)
-        wait()
+        try await pipeline.image(for: request)
 
         // THEN
-        XCTAssertTrue(dataCache.containsData(for: "http://test.com/example.jpeg"))
+        #expect(dataCache.containsData(for: "http://test.com/example.jpeg"))
     }
 }

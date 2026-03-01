@@ -2,24 +2,24 @@
 //
 // Copyright (c) 2015-2026 Alexander Grebenyuk (github.com/kean).
 
-import XCTest
+import Testing
+import Foundation
 @testable import Nuke
 
-class ImagePipelineDecodingTests: XCTestCase {
-    var dataLoader: MockDataLoader!
-    var pipeline: ImagePipeline!
+@Suite struct ImagePipelineDecodingTests {
+    let dataLoader: MockDataLoader
+    let pipeline: ImagePipeline
 
-    override func setUp() {
-        super.setUp()
-
-        dataLoader = MockDataLoader()
-        pipeline = ImagePipeline {
+    init() {
+        let dataLoader = MockDataLoader()
+        self.dataLoader = dataLoader
+        self.pipeline = ImagePipeline {
             $0.dataLoader = dataLoader
             $0.imageCache = nil
         }
     }
 
-    func testExperimentalDecoder() throws {
+    @Test func experimentalDecoder() async throws {
         // Given
         let decoder = MockExperimentalDecoder()
 
@@ -29,22 +29,18 @@ class ImagePipelineDecodingTests: XCTestCase {
             return ImageContainer(image: dummyImage, data: dummyData, userInfo: ["a": 1])
         }
 
-        pipeline = pipeline.reconfigured {
+        let pipeline = pipeline.reconfigured {
             $0.makeImageDecoder = { _ in decoder }
         }
 
         // When
-        nonisolated(unsafe) var response: ImageResponse?
-        expect(pipeline).toLoadImage(with: Test.request, completion: {
-            response = $0.value
-        })
-        wait()
+        let response = try await pipeline.imageTask(with: Test.request).response
 
         // Then
-        let container = try XCTUnwrap(response?.container)
-        XCTAssertNotNil(container.image)
-        XCTAssertEqual(container.data, dummyData)
-        XCTAssertEqual(container.userInfo["a"] as? Int, 1)
+        let container = response.container
+        #expect(container.image != nil)
+        #expect(container.data == dummyData)
+        #expect(container.userInfo["a"] as? Int == 1)
     }
 }
 

@@ -2,66 +2,82 @@
 //
 // Copyright (c) 2015-2026 Alexander Grebenyuk (github.com/kean).
 
-import XCTest
+import Testing
+import Foundation
 @testable import Nuke
 
-class ImagePipelineResumableDataTests: XCTestCase {
-    private var dataLoader: _MockResumableDataLoader!
-    private var pipeline: ImagePipeline!
+@Suite struct ImagePipelineResumableDataTests {
+    private let dataLoader: _MockResumableDataLoader
+    private let pipeline: ImagePipeline
 
-    override func setUp() {
-        super.setUp()
-
-        dataLoader = _MockResumableDataLoader()
-        ResumableDataStorage.shared.removeAllResponses()
-        pipeline = ImagePipeline {
+    init() {
+        let dataLoader = _MockResumableDataLoader()
+        self.dataLoader = dataLoader
+        self.pipeline = ImagePipeline {
             $0.dataLoader = dataLoader
             $0.imageCache = nil
         }
     }
 
-    func testThatProgressIsReported() {
+    @Test func thatProgressIsReported() async throws {
         // Given an initial request failed mid download
 
         // Expect the progress for the first part of the download to be reported.
-        let expectedProgressInitial = expectProgress(
-            [(3799, 22789), (7598, 22789), (11397, 22789)]
-        )
-        expect(pipeline).toFailRequest(Test.request, progress: { _, completed, total in
-            expectedProgressInitial.received((completed, total))
-        })
-        wait()
+        var initialProgress: [ImageTask.Progress] = []
+        do {
+            let task = pipeline.imageTask(with: Test.request)
+            for await progress in task.progress {
+                initialProgress.append(progress)
+            }
+            _ = try await task.response
+        } catch {
+            // Expected failure
+        }
+
+        #expect(initialProgress == [
+            ImageTask.Progress(completed: 3799, total: 22789),
+            ImageTask.Progress(completed: 7598, total: 22789),
+            ImageTask.Progress(completed: 11397, total: 22789)
+        ])
 
         // Expect progress closure to continue reporting the progress of the
         // entire download
-        let expectedProgersRemaining = expectProgress(
-            [(15196, 22789), (18995, 22789), (22789, 22789)]
-        )
-        expect(pipeline).toLoadImage(with: Test.request, progress: { _, completed, total in
-            expectedProgersRemaining.received((completed, total))
-        })
-        wait()
+        var remainingProgress: [ImageTask.Progress] = []
+        let task2 = pipeline.imageTask(with: Test.request)
+        for await progress in task2.progress {
+            remainingProgress.append(progress)
+        }
+        _ = try await task2.response
+
+        #expect(remainingProgress == [
+            ImageTask.Progress(completed: 15196, total: 22789),
+            ImageTask.Progress(completed: 18995, total: 22789),
+            ImageTask.Progress(completed: 22789, total: 22789)
+        ])
     }
 
-    func testThatResumableDataIsntSavedIfCancelledWhenDownloadIsCompleted() {
+    @Test func thatResumableDataIsntSavedIfCancelledWhenDownloadIsCompleted() {
 
     }
 }
 
 private class _MockResumableDataLoader: DataLoading, @unchecked Sendable {
-    private let queue = DispatchQueue(label: "_MockResumableDataLoader")
+    private let queue = OperationQueue()
 
     let data: Data = Test.data(name: "fixture", extension: "jpeg")
     let eTag: String = "img_01"
 
+    init() {
+        queue.maxConcurrentOperationCount = 1
+    }
+
     func loadData(with request: URLRequest, didReceiveData: @escaping (Data, URLResponse) -> Void, completion: @escaping (Error?) -> Void) -> Cancellable {
         let headers = request.allHTTPHeaderFields
+        let data = self.data
+        let eTag = self.eTag
 
-        let completion = UncheckedSendableBox(value: completion)
-        let didReceiveData = UncheckedSendableBox(value: didReceiveData)
-
-        func sendChunks(_ chunks: [Data], of data: Data, statusCode: Int) {
-            @Sendable func sendChunk(_ chunk: Data) {
+        let operation = BlockOperation {
+            func sendChunk(_ chunk: Data, of data: Data, statusCode: Int) {
                 let response = HTTPURLResponse(
                     url: request.url!,
                     statusCode: statusCode,
@@ -73,48 +89,37 @@ private class _MockResumableDataLoader: DataLoading, @unchecked Sendable {
                         "Content-Length": "\(data.count)"
                     ]
                 )!
-
-                didReceiveData.value(chunk, response)
+                didReceiveData(chunk, response)
             }
 
-            var chunks = chunks
-            while let chunk = chunks.first {
-                chunks.removeFirst()
-                queue.async {
-                    sendChunk(chunk)
+            // Check if the client already has some resumable data available.
+            if let range = headers?["Range"], let validator = headers?["If-Range"] {
+                let offset = _groups(regex: "bytes=(\\d*)-", in: range)[0]
+                #expect(offset != nil)
+
+                #expect(validator == eTag, "Expected validator to be equal to ETag")
+                guard validator == eTag else { return }
+
+                // Send remaining data in chunks
+                let remainingData = data[Int(offset)!...]
+                let chunks = Array(_createChunks(for: remainingData, size: data.count / 6 + 1))
+                for chunk in chunks {
+                    sendChunk(chunk, of: remainingData, statusCode: 206)
                 }
+                completion(nil)
+            } else {
+                // Send half of chunks.
+                var chunks = Array(_createChunks(for: data, size: data.count / 6 + 1))
+                chunks.removeLast(chunks.count / 2)
+
+                for chunk in chunks {
+                    sendChunk(chunk, of: data, statusCode: 200)
+                }
+                completion(NSError(domain: NSURLErrorDomain, code: Foundation.URLError.networkConnectionLost.rawValue, userInfo: [:]))
             }
         }
 
-        // Check if the client already has some resumable data available.
-        if let range = headers?["Range"], let validator = headers?["If-Range"] {
-            let offset = _groups(regex: "bytes=(\\d*)-", in: range)[0]
-            XCTAssertNotNil(offset)
-
-            XCTAssertEqual(validator, eTag, "Expected validator to be equal to ETag")
-            guard validator == eTag else { // Expected ETag
-                return _Task()
-            }
-
-            // Send remaining data in chunks
-            let remainingData = data[Int(offset)!...]
-            let chunks = Array(_createChunks(for: remainingData, size: data.count / 6 + 1))
-
-            sendChunks(chunks, of: remainingData, statusCode: 206)
-            queue.async {
-                completion.value(nil)
-            }
-        } else {
-            // Send half of chunks.
-            var chunks = Array(_createChunks(for: data, size: data.count / 6 + 1))
-            chunks.removeLast(chunks.count / 2)
-
-            sendChunks(chunks, of: data, statusCode: 200)
-            queue.async {
-                completion.value(NSError(domain: NSURLErrorDomain, code: URLError.networkConnectionLost.rawValue, userInfo: [:]))
-            }
-        }
-
+        queue.addOperation(operation)
         return _Task()
     }
 
