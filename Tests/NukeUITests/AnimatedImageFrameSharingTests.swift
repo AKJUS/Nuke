@@ -274,6 +274,47 @@ struct AnimatedImageFrameSharingTests {
         #expect(await decoder.startedIndexes == [0, 1, 2, 3])
     }
 
+    @Test func aPlayerLeftWaitingGetsTheDecodeTheOtherOneTookWithIt() async throws {
+        // Two frames of pool, so the two playheads scatter across windows that
+        // share nothing: the decode in flight is one player's, and the other is
+        // waiting on a frame nobody else is asking for. The waiting player asks
+        // once and then waits, so the decode the released one takes with it has
+        // to be replaced where it is cancelled – the division a release asks
+        // for reaches a store only when its share changes size, and here it
+        // doesn't.
+        let pool = makePool(frames: 2)
+        let source = try makeSource(frameCount: 20)
+        let decoder = GatedFrameDecoder(source: source)
+        let (first, clock) = makeIdlePlayer(source: source, pool: pool, decoder: decoder)
+        first.play()
+
+        // The first frame is displayed and the read-ahead behind it starts.
+        await decoder.release(0)
+        await first.store.currentDecode?.value
+
+        var second: AnimatedImagePlayer? = makePlayer(source: source, pool: pool)
+        second?.seek(toFrame: 10)
+
+        // The read-ahead lands, and what follows it is the second player's
+        // playhead: the only frame a window starts on that isn't decoded.
+        await decoder.release(1)
+        await first.store.currentDecode?.value
+
+        // The first player shows the frame it read ahead and then runs out.
+        clock.tick(1)
+        clock.tick(1)
+        #expect(first.currentFrameIndex == 1)
+
+        second = nil
+        await settle()
+
+        #expect(first.store.currentDecode != nil)
+        await decoder.release(2)
+        await first.store.currentDecode?.value
+
+        #expect(first.currentFrameIndex == 2)
+    }
+
     // MARK: Playheads
 
     @Test func playheadsThatAgreeCostOneWindow() throws {

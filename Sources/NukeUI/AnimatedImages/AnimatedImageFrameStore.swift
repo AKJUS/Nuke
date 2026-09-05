@@ -565,7 +565,14 @@ final class AnimatedImageFrameStore {
             // A decoder holds the animation, and with it the encoded data.
             cancelDecode()
             decoder = nil
+            return
         }
+        // A member that has come to want the frame in flight asks for it once,
+        // when it starts waiting, and then waits. So the decode a released
+        // member takes with it is replaced here rather than left to the
+        // division the release asks for, which reaches a store only when its
+        // share of the pool changes size.
         cancelDecodeIfUnwanted()
+        scheduleDecodeIfNeeded()
     }
 }
