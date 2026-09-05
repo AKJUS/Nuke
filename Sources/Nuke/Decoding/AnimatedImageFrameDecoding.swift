@@ -112,8 +112,10 @@ actor AnimatedImageFrameDecoder: AnimatedImageFrameDecoding {
         // and blend modes of GIF and APNG, scales it to the size the player
         // asked for, and hands back a bitmap that is already decompressed –
         // the call WebKit makes for every frame it decodes off the main
-        // thread. Scaling as it decodes is what HEICS and AVIF are faster
-        // for; GIF and APNG inflate the whole canvas either way.
+        // thread. The scaling is not a saving: GIF, APNG and HEICS all
+        // inflate the whole canvas first, so a downsampled frame costs what
+        // the full-size one costs plus the resampling. It buys bytes, not
+        // time.
         if maxPixelSize != nil, let frame = CGImageSourceCreateThumbnailAtIndex(source, index, options) {
             return frame
         }

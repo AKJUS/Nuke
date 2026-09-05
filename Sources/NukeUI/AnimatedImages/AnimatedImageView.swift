@@ -127,6 +127,11 @@ public final class AnimatedImageView: _PlatformImageView {
     /// 4 MB a frame, and the same animation decoded for a 120-point cell costs
     /// 0.2 MB. The frames are never scaled up.
     ///
+    /// A memory win and only that: a smaller frame takes no less time to
+    /// decode than the whole one, because the canvas is inflated whatever size
+    /// is asked for and resampled after. What the bytes buy is the pool holding
+    /// the animation whole rather than decoding it again on every loop.
+    ///
     /// The size is settled at the first layout that has one, and settled again
     /// whenever the view grows well past it – a rotation, a split view, a
     /// window dragged wider – so that the frames are never scaled up by much.
@@ -337,6 +342,14 @@ public final class AnimatedImageView: _PlatformImageView {
     /// width divided by three – would otherwise each decode the animation at a
     /// size of their own and share nothing. Rounding up costs at most a few
     /// percent more pixels per frame.
+    ///
+    /// A step and not a power of two, which would collapse more sizes still:
+    /// measured, no size decodes faster than another – dyadic scaling is a
+    /// JPEG trick these formats don't have – so a bucket only asks for pixels
+    /// nobody draws. Over a spread of view sizes that is 2.16× the bytes (3/ln 4) and
+    /// 4× at worst, for frames the view then minifies by up to 2× as it draws
+    /// them. The bytes are the whole point: they decide whether the pool holds
+    /// the animation whole or decodes it again on every loop.
     private static let pixelSizeStep: CGFloat = 32
 
     /// Whether the content mode covers the view with the frames rather than
