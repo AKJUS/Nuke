@@ -40,6 +40,19 @@ struct AnimatedImagesDemo: View {
     @State private var extraPlayers: [AnimatedImagePlayer] = []
     @State private var status: String?
     @State private var isShowingInfo = false
+    /// Whether the console is on screen.
+    ///
+    /// It starts closed and is asked for once the screen is up rather than
+    /// while it is still arriving: a sheet asked for in the same update that
+    /// pushes the screen is dropped rather than queued, and a dropped one is
+    /// not retried – the reader is left on a stage with no console and a
+    /// question mark that opens nothing, which is exactly what a push from the
+    /// menu used to do. One turn of the loop later, the same request lands.
+    ///
+    /// State, too, and not a constant: `inspector` writes `false` here when
+    /// its sheet goes away, and a constant swallows the write, leaving the
+    /// screen certain of a console that is no longer there.
+    @State private var isShowingConsole = false
     @State private var isShowingImageDetails = false
     @State private var detent: PresentationDetent = Self.collapsedConsole
     /// How large the animation is drawn on the stage. Natural size, until
@@ -76,7 +89,13 @@ struct AnimatedImagesDemo: View {
                 ImageMenu(image: $image, current: image).equatable()
             }
             .demoInfoButton(isPresented: $isShowingInfo)
-            .inspector(isPresented: .constant(true)) { console }
+            // Asked for a turn of the loop after the screen arrives rather
+            // than in the update that brings it in – see ``isShowingConsole``.
+            .task {
+                await Task.yield()
+                isShowingConsole = true
+            }
+            .inspector(isPresented: $isShowingConsole) { console }
     }
 
     /// Whether the console is a sheet below the stage rather than a column

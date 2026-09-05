@@ -30,6 +30,9 @@ struct AnimationMemoryDemo: View {
     /// way out: the pool is shared with every other screen in the app.
     @State private var poolCostLimit: Int?
     @State private var isShowingInfo = false
+    /// Whether the console is on screen, asked for only once the screen is up –
+    /// see the same property on ``AnimatedImagesDemo``.
+    @State private var isShowingConsole = false
     @State private var detent: PresentationDetent = Self.collapsedConsole
     /// What decides how the console is presented: as a sheet in a compact
     /// width, as a column beside the stage otherwise.
@@ -62,7 +65,13 @@ struct AnimationMemoryDemo: View {
                 }
             }
             .demoInfoButton(isPresented: $isShowingInfo)
-            .inspector(isPresented: .constant(true)) { console }
+            // Asked for a turn of the loop after the screen arrives rather
+            // than in the update that brings it in – see ``isShowingConsole``.
+            .task {
+                await Task.yield()
+                isShowingConsole = true
+            }
+            .inspector(isPresented: $isShowingConsole) { console }
     }
 
     /// Whether the console is a sheet below the stage rather than a column
