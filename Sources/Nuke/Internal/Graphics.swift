@@ -2,12 +2,12 @@
 //
 // Copyright (c) 2015-2026 Alexander Grebenyuk (github.com/kean).
 
+import CoreGraphics
 import Foundation
+import ImageIO
 import os
 
 #if os(watchOS)
-import ImageIO
-import CoreGraphics
 import WatchKit.WKInterfaceDevice
 #endif
 
@@ -297,7 +297,9 @@ extension UIImage.Orientation {
     }
 }
 
-private extension CGSize {
+#endif
+
+extension CGSize {
     func rotatedForOrientation(_ imageOrientation: CGImagePropertyOrientation) -> CGSize {
         switch imageOrientation {
         case .left, .leftMirrored, .right, .rightMirrored:
@@ -306,9 +308,7 @@ private extension CGSize {
             return self
         }
     }
-
 }
-#endif
 
 #if os(macOS)
 extension NSImage {
@@ -345,6 +345,51 @@ extension CGImage {
 
     var size: CGSize {
         CGSize(width: width, height: height)
+    }
+
+    /// Draws the image at the given size, in pixels, with the orientation
+    /// baked into the pixels it returns.
+    ///
+    /// What a renderer that can't orient an image as it decodes has to do:
+    /// `CGImageSourceCreateImageAtIndex` hands back the pixels the way the
+    /// container stores them, and the orientation it declares is a transform
+    /// on top of them – the one Image I/O applies itself when it is asked for
+    /// a thumbnail with `kCGImageSourceCreateThumbnailWithTransform`.
+    ///
+    /// - parameter size: The size to draw at, in pixels, before the
+    /// orientation is applied. The image it returns is that size rotated, for
+    /// the four orientations that turn a frame on its side.
+    func drawn(inCanvasWithSize size: CGSize, orientation: CGImagePropertyOrientation) -> CGImage? {
+        guard let context = CGContext.make(self, size: size.rotatedForOrientation(orientation)) else {
+            return nil
+        }
+        context.concatenate(.orienting(orientation, size: size))
+        context.draw(self, in: CGRect(origin: .zero, size: size))
+        return context.makeImage()
+    }
+}
+
+private extension CGAffineTransform {
+    /// The transform that displays an image of the given size, in pixels, the
+    /// way the orientation says it must be: applied to a context of the
+    /// rotated size, with the image drawn into `(0, 0, size)`.
+    ///
+    /// Each matrix maps the corners of the stored image onto the corners the
+    /// EXIF orientation puts them at – the value names which edge row 0 and
+    /// column 0 of the stored image end up on – in the y-up space a bitmap
+    /// context draws in.
+    static func orienting(_ orientation: CGImagePropertyOrientation, size: CGSize) -> CGAffineTransform {
+        let (width, height) = (size.width, size.height)
+        switch orientation {
+        case .up: return .identity
+        case .upMirrored: return CGAffineTransform(a: -1, b: 0, c: 0, d: 1, tx: width, ty: 0)
+        case .down: return CGAffineTransform(a: -1, b: 0, c: 0, d: -1, tx: width, ty: height)
+        case .downMirrored: return CGAffineTransform(a: 1, b: 0, c: 0, d: -1, tx: 0, ty: height)
+        case .leftMirrored: return CGAffineTransform(a: 0, b: -1, c: -1, d: 0, tx: height, ty: width)
+        case .right: return CGAffineTransform(a: 0, b: -1, c: 1, d: 0, tx: 0, ty: width)
+        case .rightMirrored: return CGAffineTransform(a: 0, b: 1, c: 1, d: 0, tx: 0, ty: 0)
+        case .left: return CGAffineTransform(a: 0, b: 1, c: -1, d: 0, tx: height, ty: 0)
+        }
     }
 }
 

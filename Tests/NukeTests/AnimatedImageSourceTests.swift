@@ -34,6 +34,18 @@ struct AnimatedImageSourceTests {
         #expect(abs(source.duration - 0.6) < 0.001)
     }
 
+    @Test func reportsTheCanvasWithTheOrientationApplied() throws {
+        // The frames are decoded with the orientation the container declares
+        // applied, so the canvas is the size they come out at – the size the
+        // still the pipeline decodes beside them has too.
+        guard let data = Test.animatedPNG(size: CGSize(width: 24, height: 12), orientation: .right) else {
+            return // Image I/O on this platform can't write an APNG
+        }
+        let source = try #require(AnimatedImageSource(data: data))
+
+        #expect(source.size == CGSize(width: 12, height: 24))
+    }
+
     @Test func parsesAnimatedHEIC() throws {
         guard let data = Test.animatedHEICS(frameCount: 3, delays: [0.25, 0.25, 0.25]) else {
             return // Image I/O on this platform can't write a HEIC sequence

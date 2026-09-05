@@ -42,11 +42,20 @@ extension Test {
 
     /// Builds an animated PNG, or returns `nil` if Image I/O on this platform
     /// can't write one.
+    ///
+    /// - parameter orientation: The orientation to declare, or `nil` for a
+    /// container that declares none. APNG is the one animated format Image I/O
+    /// writes an orientation into and reads the same one back out: it turns
+    /// the pixels of a GIF instead and drops the property from a HEIC sequence
+    /// altogether. The frames of a fixture that carries one are quartered
+    /// rather than solid, so that a frame the orientation was applied to
+    /// differs from one it wasn't.
     static func animatedPNG(
         frameCount: Int = 4,
         delays: [TimeInterval]? = nil,
         loopCount: Int = 0,
-        size: CGSize = CGSize(width: 8, height: 8)
+        size: CGSize = CGSize(width: 8, height: 8),
+        orientation: CGImagePropertyOrientation? = nil
     ) -> Data? {
         let data = makeAnimation(
             type: UTType.png,
@@ -56,7 +65,8 @@ extension Test {
             containerKey: kCGImagePropertyPNGDictionary,
             loopCountKey: kCGImagePropertyAPNGLoopCount,
             loopCount: loopCount,
-            delayKeys: [kCGImagePropertyAPNGDelayTime, kCGImagePropertyAPNGUnclampedDelayTime]
+            delayKeys: [kCGImagePropertyAPNGDelayTime, kCGImagePropertyAPNGUnclampedDelayTime],
+            orientation: orientation
         )
         guard let data,
               let source = CGImageSourceCreateWithData(data as CFData, nil),
@@ -149,7 +159,8 @@ extension Test {
         containerKey: CFString,
         loopCountKey: CFString,
         loopCount: Int?,
-        delayKeys: [CFString]
+        delayKeys: [CFString],
+        orientation: CGImagePropertyOrientation? = nil
     ) -> Data? {
         let data = NSMutableData()
         guard let destination = CGImageDestinationCreateWithData(
@@ -173,9 +184,13 @@ extension Test {
                     uniqueKeysWithValues: delayKeys.map { ($0, delay) }
                 )
             }
+            if let orientation {
+                frameProperties[kCGImagePropertyOrientation] = orientation.rawValue
+            }
             CGImageDestinationAddImage(
                 destination,
-                makeFrame(index: index, size: size),
+                orientation == nil ? makeFrame(index: index, size: size)
+                                   : makeQuarteredFrame(index: index, size: size),
                 frameProperties as CFDictionary
             )
         }
@@ -185,8 +200,27 @@ extension Test {
         return data as Data
     }
 
+    /// A frame with a different color in every quadrant: no two orientations
+    /// display it the same way, which a frame of one solid color can't say.
+    private static func makeQuarteredFrame(index: Int, size: CGSize) -> CGImage {
+        let context = makeContext(size: size)
+        let quadrants = CGRect(origin: .zero, size: size).quadrants
+        for (quadrant, offset) in zip(quadrants, [0, 2, 3, 5]) {
+            context.setFillColor(animationFrameColor(at: index + offset))
+            context.fill(quadrant)
+        }
+        return context.makeImage()!
+    }
+
     private static func makeFrame(index: Int, size: CGSize) -> CGImage {
-        let context = CGContext(
+        let context = makeContext(size: size)
+        context.setFillColor(animationFrameColor(at: index))
+        context.fill(CGRect(origin: .zero, size: size))
+        return context.makeImage()!
+    }
+
+    private static func makeContext(size: CGSize) -> CGContext {
+        CGContext(
             data: nil,
             width: Int(size.width),
             height: Int(size.height),
@@ -195,8 +229,18 @@ extension Test {
             space: CGColorSpaceCreateDeviceRGB(),
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         )!
-        context.setFillColor(animationFrameColor(at: index))
-        context.fill(CGRect(origin: .zero, size: size))
-        return context.makeImage()!
+    }
+}
+
+private extension CGRect {
+    /// The four quarters of the rect, clockwise from the top left.
+    var quadrants: [CGRect] {
+        let (halfWidth, halfHeight) = (width / 2, height / 2)
+        return [
+            CGRect(x: minX, y: midY, width: halfWidth, height: halfHeight),
+            CGRect(x: midX, y: midY, width: halfWidth, height: halfHeight),
+            CGRect(x: midX, y: minY, width: halfWidth, height: halfHeight),
+            CGRect(x: minX, y: minY, width: halfWidth, height: halfHeight)
+        ]
     }
 }

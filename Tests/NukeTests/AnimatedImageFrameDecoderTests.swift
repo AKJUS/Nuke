@@ -8,6 +8,12 @@ import ImageIO
 import Testing
 @testable import Nuke
 
+#if canImport(UIKit)
+import UIKit
+#else
+import AppKit
+#endif
+
 /// The decoder every animation gets unless it carries one of its own: Image
 /// I/O composing, scaling, and decompressing one frame at a time.
 @Suite(.timeLimit(.minutes(1)))
@@ -93,6 +99,77 @@ struct AnimatedImageFrameDecoderTests {
         #expect(max(frame.width, frame.height) == 1)
     }
 
+    // MARK: Orientation
+
+    @Test(arguments: orientations)
+    func decodesTheFramesWithTheOrientationTheContainerDeclares(orientation: CGImagePropertyOrientation) async throws {
+        // A rotated animated WebP or HEIC declares one, and Image I/O hands
+        // the pixels over the way the container stores them unless it is asked
+        // to apply it – so this is what keeps a rotated animation upright.
+        guard let data = Test.animatedPNG(frameCount: 3, size: CGSize(width: 24, height: 12), orientation: orientation) else {
+            return // Image I/O on this platform can't write an APNG
+        }
+        let source = try #require(AnimatedImageSource(data: data))
+        let reference = try #require(orientedFrame(at: 1, in: data))
+
+        let frame = try #require(await AnimatedImageFrameDecoder(source: source).decode(at: 1))
+
+        #expect(CGSize(width: frame.width, height: frame.height) == source.size)
+        #expect(maxDifference(frame, reference) <= 1)
+    }
+
+    @Test(arguments: orientations)
+    func appliesTheOrientationToAFrameItDecodesByDrawing(orientation: CGImagePropertyOrientation) throws {
+        // The other half of it: the fallback draws the frame Image I/O hands
+        // over whole, and that one carries no orientation either, so the draw
+        // is what has to apply it.
+        guard let data = Test.animatedPNG(frameCount: 3, size: CGSize(width: 24, height: 12), orientation: orientation) else {
+            return // Image I/O on this platform can't write an APNG
+        }
+        let container = try #require(CGImageSourceCreateWithData(data as CFData, nil))
+        let stored = try #require(CGImageSourceCreateImageAtIndex(container, 1, nil))
+        let reference = try #require(orientedFrame(at: 1, in: data))
+
+        let frame = try #require(stored.drawn(inCanvasWithSize: stored.size, orientation: orientation))
+
+        #expect(frame.width == reference.width)
+        #expect(frame.height == reference.height)
+        #expect(maxDifference(frame, reference) <= 1)
+    }
+
+    @Test func decodesTheFramesTheWayTheStillBesideThemIsDecoded() async throws {
+        // The two halves the view puts on screen one after the other: the
+        // still the pipeline decodes with `UIImage(data:)`, which applies the
+        // orientation, and the frames that replace it the moment playback
+        // starts.
+        guard let data = Test.animatedPNG(size: CGSize(width: 24, height: 12), orientation: .right) else {
+            return // Image I/O on this platform can't write an APNG
+        }
+        let container = try ImageDecoders.Default().decode(data)
+        let source = try #require(container.animation)
+
+        let frame = try #require(await AnimatedImageFrameDecoder(source: source).decode(at: 0))
+
+        #expect(container.image.size == CGSize(width: 12, height: 24))
+        #expect(CGSize(width: frame.width, height: frame.height) == container.image.size)
+    }
+
+    /// The frame Image I/O produces when it is the one applying the
+    /// orientation, which is what a correctly decoded frame has to match.
+    ///
+    /// The limit is the longest side of the fixtures here, so nothing is
+    /// scaled: what is being compared is the orientation, not the resampling.
+    private func orientedFrame(at index: Int, in data: Data) -> CGImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
+            return nil
+        }
+        return CGImageSourceCreateThumbnailAtIndex(source, index, [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: 24
+        ] as CFDictionary)
+    }
+
     // MARK: Decompression
 
     @Test func handsBackFramesThatAreAlreadyDecompressed() async throws {
@@ -141,6 +218,11 @@ struct AnimatedImageFrameDecoderTests {
         #expect(frame == nil)
     }
 }
+
+/// Every orientation a container can declare, in the order EXIF numbers them.
+private let orientations: [CGImagePropertyOrientation] = [
+    .up, .upMirrored, .down, .downMirrored, .leftMirrored, .right, .rightMirrored, .left
+]
 
 /// The largest per-component difference between two images, compared through a
 /// grid small enough that the sampling itself is what normalizes the pixel

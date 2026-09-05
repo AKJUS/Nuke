@@ -73,6 +73,11 @@ actor AnimatedImageFrameDecoder: AnimatedImageFrameDecoding {
             // Compose the frame rather than lift whatever preview the
             // container carries.
             kCGImageSourceCreateThumbnailFromImageAlways: true,
+            // Apply the orientation the container declares – a rotated
+            // animated WebP or HEIC has one. The still the pipeline decodes
+            // from the same data applies it, so a frame that didn't would snap
+            // sideways the moment playback replaced the still.
+            kCGImageSourceCreateThumbnailWithTransform: true,
             // Decompress it here, on this actor. Left to Image I/O, the bitmap
             // is produced the first time something draws the frame, which is
             // the main thread.
@@ -128,12 +133,9 @@ actor AnimatedImageFrameDecoder: AnimatedImageFrameDecoding {
         let size = targetSize(for: image)
         // The image is lazy: it decompresses the first time something draws
         // it, which would otherwise be the main thread. The draw is also what
-        // applies the limit Image I/O declined to.
-        guard let context = CGContext.make(image, size: size) else {
-            return image
-        }
-        context.draw(image, in: CGRect(origin: .zero, size: size))
-        return context.makeImage() ?? image
+        // applies the limit Image I/O declined to, and the orientation it
+        // never applies to a frame it hands over whole.
+        return image.drawn(inCanvasWithSize: size, orientation: animation.orientation) ?? image
     }
 
     /// The size to draw the frame at: its own, no longer on its longest side

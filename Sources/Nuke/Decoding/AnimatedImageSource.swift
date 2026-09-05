@@ -63,8 +63,15 @@ public final class AnimatedImageSource: Sendable {
     /// how browsers read it.
     public let loopCount: Int
 
-    /// The size of the animation canvas, in pixels.
+    /// The size of the animation canvas, in pixels, with the orientation the
+    /// container declares applied: the size the frames are decoded at.
     public let size: CGSize
+
+    /// The orientation the container declares, and the frames are decoded
+    /// with: an animated WebP or HEIC can carry one, where a GIF has nowhere
+    /// to put it. The still the pipeline decodes beside the animation applies
+    /// it too, so the two agree.
+    let orientation: CGImagePropertyOrientation
 
     /// What produces the frames, when it isn't Image I/O.
     ///
@@ -131,7 +138,9 @@ public final class AnimatedImageSource: Sendable {
         self.delays = (0..<frameCount).map { format.delay(in: source, at: $0) }
         self.duration = delays.reduce(0, +)
         self.loopCount = format.loopCount(in: properties)
-        self.size = AnimatedImageSource.size(of: source)
+        let canvas = AnimatedImageSource.canvas(of: source)
+        self.size = canvas.size
+        self.orientation = canvas.orientation
         self.customFrameDecoder = nil
     }
 
@@ -186,6 +195,9 @@ public final class AnimatedImageSource: Sendable {
         self.duration = self.delays.reduce(0, +)
         self.loopCount = max(0, loopCount)
         self.size = size
+        // Whatever the frames the decoder produces are oriented like, they are
+        // what they are: nothing here transforms them.
+        self.orientation = .up
         self.customFrameDecoder = makeFrameDecoder
     }
 
@@ -234,12 +246,19 @@ public final class AnimatedImageSource: Sendable {
         [kCGImageSourceShouldCache: false] as CFDictionary
     }
 
-    private static func size(of source: CGImageSource) -> CGSize {
+    private static func canvas(of source: CGImageSource) -> (size: CGSize, orientation: CGImagePropertyOrientation) {
         guard let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
               let width = properties[kCGImagePropertyPixelWidth] as? Double,
               let height = properties[kCGImagePropertyPixelHeight] as? Double else {
-            return .zero
+            return (.zero, .up)
         }
-        return CGSize(width: width, height: height)
+        // The pixel dimensions are the ones the frames are stored at, and the
+        // frames are decoded with the orientation applied, so the canvas is
+        // the size they come out at – which is also the size of the still the
+        // pipeline decodes beside them.
+        let orientation = (properties[kCGImagePropertyOrientation] as? UInt32)
+            .flatMap(CGImagePropertyOrientation.init) ?? .up
+        let size = CGSize(width: width, height: height).rotatedForOrientation(orientation)
+        return (size, orientation)
     }
 }
