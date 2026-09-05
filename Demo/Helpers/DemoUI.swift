@@ -289,3 +289,128 @@ struct SquareCell<Content: View>: View {
             .clipShape(Rectangle())
     }
 }
+
+// MARK: - Stage and Console
+
+extension View {
+    /// Lays a demo screen out as a stage and a console: the view stays put and
+    /// the diagnostics live in an inspector beside it – a column where there is
+    /// room for one, a sheet below it where there isn't.
+    ///
+    /// The two animation screens are the same screen in this respect, down to
+    /// the detents, so the arrangement lives here rather than twice over: the
+    /// screen declares what is on the stage, what is in the console, and how
+    /// tall the console is when it is folded away.
+    ///
+    /// Apply it last. Everything before it – the title, its menu, a toolbar
+    /// item of the screen's own – is scoped to the stage; after it they drift
+    /// into the console's column.
+    ///
+    /// - parameter collapsedHeight: How tall the console stands when it is a
+    /// sheet at rest: enough to show what the screen wants read at a glance,
+    /// and enough of the next thing to say there is more to pull up.
+    func demoConsole<Console: View>(
+        collapsedHeight: CGFloat,
+        info: DemoInfo,
+        @ViewBuilder console: @escaping () -> Console
+    ) -> some View {
+        modifier(DemoConsoleModifier(collapsedHeight: collapsedHeight, info: info, console: console))
+    }
+}
+
+private struct DemoConsoleModifier<Console: View>: ViewModifier {
+    let collapsedHeight: CGFloat
+    let info: DemoInfo
+    @ViewBuilder let console: () -> Console
+
+    @State private var detent: PresentationDetent
+    /// Whether the console is on screen.
+    ///
+    /// It starts closed and is asked for once the screen is up rather than
+    /// while it is still arriving: a sheet asked for in the same update that
+    /// pushes the screen is dropped rather than queued, and a dropped one is
+    /// not retried – the reader is left on a stage with no console and a
+    /// question mark that opens nothing. One turn of the loop later, the same
+    /// request lands.
+    ///
+    /// State, too, and not a constant: `inspector` writes `false` here when its
+    /// sheet goes away, and a constant swallows the write.
+    @State private var isShowingConsole = false
+    @State private var isShowingInfo = false
+    /// What decides how the console is presented: as a sheet in a compact
+    /// width, as a column beside the stage otherwise.
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+    init(collapsedHeight: CGFloat, info: DemoInfo, @ViewBuilder console: @escaping () -> Console) {
+        self.collapsedHeight = collapsedHeight
+        self.info = info
+        self.console = console
+        _detent = State(initialValue: .height(collapsedHeight))
+    }
+
+    func body(content: Content) -> some View {
+        GeometryReader { proxy in
+            content
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
+                // A sheet covers the bottom edge; a column leaves it to the
+                // stage.
+                .padding(.bottom, isConsoleSheet ? 0 : 16)
+                .frame(height: stageHeight(in: proxy), alignment: .top)
+                .animation(.snappy, value: detent)
+        }
+        .background(Color(.systemGroupedBackground))
+        .demoInfoButton(isPresented: $isShowingInfo)
+        // Asked for a turn of the loop after the screen arrives rather than in
+        // the update that brings it in – see ``isShowingConsole``.
+        .task {
+            await Task.yield()
+            isShowingConsole = true
+        }
+        .inspector(isPresented: $isShowingConsole) {
+            console()
+                .listStyle(.insetGrouped)
+                .inspectorColumnWidth(min: 320, ideal: 380, max: 480)
+                .presentationDetents([collapsedDetent, .medium, .large], selection: $detent)
+                .presentationDragIndicator(.visible)
+                // Keeps the stage behind the sheet interactive, so the
+                // animation can be played and switched while the settings
+                // change.
+                .presentationBackgroundInteraction(.enabled(upThrough: .medium))
+                .interactiveDismissDisabled()
+                // The console covers the sheet the toolbar button would
+                // present, so the explanation is presented from inside the
+                // inspector instead.
+                .sheet(isPresented: $isShowingInfo) {
+                    DemoInfoSheet(info: info)
+                }
+        }
+    }
+
+    private var collapsedDetent: PresentationDetent { .height(collapsedHeight) }
+
+    /// Whether the console is a sheet below the stage rather than a column
+    /// beside it.
+    private var isConsoleSheet: Bool {
+        horizontalSizeClass == .compact
+    }
+
+    /// The room the console leaves for the stage.
+    ///
+    /// Beside the stage, all of it. Below the stage, the console is presented
+    /// over the screen rather than next to it, so the stage has to keep clear
+    /// of it by hand. Pulling the sheet up shrinks what is on the stage instead
+    /// of covering it, which is the point of these screens: the settings that
+    /// change an animation are no use without it in view.
+    private func stageHeight(in proxy: GeometryProxy) -> CGFloat {
+        guard isConsoleSheet else {
+            return proxy.size.height
+        }
+        let console = detent == collapsedDetent
+            ? collapsedHeight
+            // Everything above `.medium` covers the stage anyway, so the size
+            // it settles on there is the smallest one worth laying out.
+            : proxy.size.height / 2
+        return max(200, proxy.size.height - console)
+    }
+}

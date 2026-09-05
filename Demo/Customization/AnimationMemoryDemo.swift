@@ -29,14 +29,6 @@ struct AnimationMemoryDemo: View {
     /// The limit the pool had before the screen took it over, put back on the
     /// way out: the pool is shared with every other screen in the app.
     @State private var poolCostLimit: Int?
-    @State private var isShowingInfo = false
-    /// Whether the console is on screen, asked for only once the screen is up –
-    /// see the same property on ``AnimatedImagesDemo``.
-    @State private var isShowingConsole = false
-    @State private var detent: PresentationDetent = Self.collapsedConsole
-    /// What decides how the console is presented: as a sheet in a compact
-    /// width, as a column beside the stage otherwise.
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     private let timer = Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()
 
@@ -54,9 +46,8 @@ struct AnimationMemoryDemo: View {
                     AnimatedImageFramePool.shared.costLimit = poolCostLimit
                 }
             }
-            // The title, the count, and the info button come before
-            // `inspector`, which scopes them to the stage: after it they drift
-            // into the console's column.
+            // The title and the count come before `demoConsole`, which
+            // scopes them to the stage.
             .navigationTitle("Animation Memory")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -64,20 +55,7 @@ struct AnimationMemoryDemo: View {
                         .equatable()
                 }
             }
-            .demoInfoButton(isPresented: $isShowingInfo)
-            // Asked for a turn of the loop after the screen arrives rather
-            // than in the update that brings it in – see ``isShowingConsole``.
-            .task {
-                await Task.yield()
-                isShowingConsole = true
-            }
-            .inspector(isPresented: $isShowingConsole) { console }
-    }
-
-    /// Whether the console is a sheet below the stage rather than a column
-    /// beside it.
-    private var isConsoleSheet: Bool {
-        horizontalSizeClass == .compact
+            .demoConsole(collapsedHeight: Self.collapsedConsoleHeight, info: Self.info) { console }
     }
 
     /// How many animations are on the wall, at the trailing edge of the title
@@ -118,23 +96,14 @@ struct AnimationMemoryDemo: View {
     // MARK: Stage
 
     private var stage: some View {
-        GeometryReader { proxy in
-            VStack(spacing: 12) {
-                Picker("Image", selection: $image) {
-                    ForEach(DemoAnimation.available) { Text($0.title).tag($0) }
-                }
-                .pickerStyle(.segmented)
-
-                wall
+        VStack(spacing: 12) {
+            Picker("Image", selection: $image) {
+                ForEach(DemoAnimation.available) { Text($0.title).tag($0) }
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 12)
-            // A sheet covers the bottom edge; a column leaves it to the stage.
-            .padding(.bottom, isConsoleSheet ? 0 : 16)
-            .frame(height: stageHeight(in: proxy), alignment: .top)
-            .animation(.snappy, value: detent)
+            .pickerStyle(.segmented)
+
+            wall
         }
-        .background(Color(.systemGroupedBackground))
     }
 
     @ViewBuilder
@@ -181,49 +150,19 @@ struct AnimationMemoryDemo: View {
         }
     }
 
-    /// The room the console leaves for the wall. Beside the stage, all of it;
-    /// below it, whatever the sheet isn't covering – pulling the sheet up
-    /// shrinks the wall instead of hiding it, which is the point of the screen.
-    private func stageHeight(in proxy: GeometryProxy) -> CGFloat {
-        guard isConsoleSheet else {
-            return proxy.size.height
-        }
-        let console = detent == Self.collapsedConsole
-            ? Self.collapsedConsoleHeight
-            // Everything above `.medium` covers the stage anyway, so the size
-            // it settles on there is the smallest one worth laying out.
-            : proxy.size.height / 2
-        return max(200, proxy.size.height - console)
-    }
-
     // MARK: Console
 
     /// Tall enough for the pool meter and a first row under it, which is what
     /// says there is more to pull up.
     private static let collapsedConsoleHeight: CGFloat = 208
-    private static let collapsedConsole = PresentationDetent.height(collapsedConsoleHeight)
 
     /// The pool settings and the per-animation diagnostics, and nothing pinned
     /// above them – the way the Animated Images console is all list, so there
-    /// is only one thing to scroll and it all scrolls. The presentation
-    /// modifiers only have a say when the inspector is a sheet.
+    /// is only one thing to scroll and it all scrolls.
     private var console: some View {
         List {
             poolSection
             diagnosticsSection
-        }
-        .listStyle(.insetGrouped)
-        .inspectorColumnWidth(min: 320, ideal: 380, max: 480)
-        .presentationDetents([Self.collapsedConsole, .medium, .large], selection: $detent)
-        .presentationDragIndicator(.visible)
-        // Keeps the stage behind the sheet interactive, so the animations can be
-        // played and switched while the settings change.
-        .presentationBackgroundInteraction(.enabled(upThrough: .medium))
-        .interactiveDismissDisabled()
-        // The console covers the sheet the toolbar button would present, so the
-        // explanation is presented from inside the inspector instead.
-        .sheet(isPresented: $isShowingInfo) {
-            DemoInfoSheet(info: Self.info)
         }
     }
 

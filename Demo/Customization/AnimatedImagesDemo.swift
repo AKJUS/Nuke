@@ -39,22 +39,7 @@ struct AnimatedImagesDemo: View {
     /// decoded frames.
     @State private var extraPlayers: [AnimatedImagePlayer] = []
     @State private var status: String?
-    @State private var isShowingInfo = false
-    /// Whether the console is on screen.
-    ///
-    /// It starts closed and is asked for once the screen is up rather than
-    /// while it is still arriving: a sheet asked for in the same update that
-    /// pushes the screen is dropped rather than queued, and a dropped one is
-    /// not retried – the reader is left on a stage with no console and a
-    /// question mark that opens nothing, which is exactly what a push from the
-    /// menu used to do. One turn of the loop later, the same request lands.
-    ///
-    /// State, too, and not a constant: `inspector` writes `false` here when
-    /// its sheet goes away, and a constant swallows the write, leaving the
-    /// screen certain of a console that is no longer there.
-    @State private var isShowingConsole = false
     @State private var isShowingImageDetails = false
-    @State private var detent: PresentationDetent = Self.collapsedConsole
     /// How large the animation is drawn on the stage. Natural size, until
     /// the zoom control in the canvas corner says otherwise.
     @State private var zoom: DisplayZoom = .scale(1)
@@ -67,58 +52,27 @@ struct AnimatedImagesDemo: View {
     /// "View" frame size decodes for, and a player is built for every change
     /// of it – so a drag of the slider or a sheet on its way up settles first.
     @State private var settledDisplaySize: CGSize = .zero
-    /// What decides how the console is presented: as a sheet in a compact
-    /// width, as a column beside the stage otherwise.
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.displayScale) private var displayScale
 
     private let timer = Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        stage
+        canvas
             .task(id: reloadKey) { await load() }
             .task(id: copiesKey) { rebuildCopies() }
             .task(id: displayedSize) { await settleDisplaySize() }
             .onReceive(timer) { _ in sample() }
-            // The title is the image, the way a title menu wants it: it names
-            // what the menu under it switches. The title, its menu, and the
-            // info button come before `inspector`, which scopes them to the
-            // stage: after it they drift into the console's column.
+            // The title is the image, the way a title menu wants it: it
+            // names what the menu under it switches. It comes before
+            // `demoConsole`, which scopes it to the stage.
             .navigationTitle(image.title)
             .toolbarTitleMenu {
                 ImageMenu(image: $image, current: image).equatable()
             }
-            .demoInfoButton(isPresented: $isShowingInfo)
-            // Asked for a turn of the loop after the screen arrives rather
-            // than in the update that brings it in – see ``isShowingConsole``.
-            .task {
-                await Task.yield()
-                isShowingConsole = true
-            }
-            .inspector(isPresented: $isShowingConsole) { console }
-    }
-
-    /// Whether the console is a sheet below the stage rather than a column
-    /// beside it.
-    private var isConsoleSheet: Bool {
-        horizontalSizeClass == .compact
+            .demoConsole(collapsedHeight: Self.collapsedConsoleHeight, info: Self.info) { console }
     }
 
     // MARK: Stage
-
-    private var stage: some View {
-        GeometryReader { proxy in
-            canvas
-                .padding(.horizontal, 16)
-                .padding(.top, 12)
-                // A sheet covers the bottom edge; a column leaves it to the
-                // stage.
-                .padding(.bottom, isConsoleSheet ? 0 : 16)
-                .frame(height: stageHeight(in: proxy), alignment: .top)
-                .animation(.snappy, value: detent)
-        }
-        .background(Color(.systemGroupedBackground))
-    }
 
     /// The animation at the zoom picked from the menu in its corner, measured
     /// on the way: the size it lands at is what a "View" frame size decodes
@@ -395,37 +349,16 @@ struct AnimatedImagesDemo: View {
         settledDisplaySize = displayedSize
     }
 
-    /// The room the console leaves for the animation.
-    ///
-    /// Beside the stage, all of it. Below the stage, the console is presented
-    /// over the screen rather than next to it, so the stage has to keep clear of
-    /// it by hand. Pulling the sheet up shrinks the animation instead of
-    /// covering it, which is the point of the screen: the settings that change
-    /// the animation are no use without it in view.
-    private func stageHeight(in proxy: GeometryProxy) -> CGFloat {
-        guard isConsoleSheet else {
-            return proxy.size.height
-        }
-        let console = detent == Self.collapsedConsole
-            ? Self.collapsedConsoleHeight
-            // Everything above `.medium` covers the stage anyway, so the size
-            // it settles on there is the smallest one worth laying out.
-            : proxy.size.height / 2
-        return max(200, proxy.size.height - console)
-    }
-
     // MARK: Console
 
     /// Tall enough for the buffer map – the scrubber – the transport under
     /// it, and a first figure or two, which is what says there is more to
     /// pull up.
     private static let collapsedConsoleHeight: CGFloat = 232
-    private static let collapsedConsole = PresentationDetent.height(collapsedConsoleHeight)
 
     /// The diagnostics and the settings, and nothing pinned above them:
     /// playback lives on the canvas, so the console is all list and all of it
-    /// scrolls. The presentation modifiers only have a say when the inspector
-    /// is a sheet.
+    /// scrolls.
     private var console: some View {
         List {
             diagnosticsSection
@@ -433,19 +366,6 @@ struct AnimatedImagesDemo: View {
             transformSection
             copiesSection
             playbackSection
-        }
-        .listStyle(.insetGrouped)
-        .inspectorColumnWidth(min: 320, ideal: 380, max: 480)
-        .presentationDetents([Self.collapsedConsole, .medium, .large], selection: $detent)
-        .presentationDragIndicator(.visible)
-        // Keeps the stage behind the sheet interactive, so the animation can be
-        // scrubbed and switched while the settings change.
-        .presentationBackgroundInteraction(.enabled(upThrough: .medium))
-        .interactiveDismissDisabled()
-        // The console covers the sheet the toolbar button would present, so the
-        // explanation is presented from inside the inspector instead.
-        .sheet(isPresented: $isShowingInfo) {
-            DemoInfoSheet(info: Self.info)
         }
     }
 
