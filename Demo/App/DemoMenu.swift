@@ -148,7 +148,6 @@ private struct DemoLink<Destination: View>: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            .padding(.vertical, 2)
         }
     }
 }
