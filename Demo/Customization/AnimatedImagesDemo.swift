@@ -13,44 +13,28 @@ import SwiftUI
 /// `LazyImage` plays animated images on its own; this screen creates the
 /// ``AnimatedImagePlayer`` itself to get at ``AnimatedImagePlayer/diagnostics``.
 /// The **Animation Memory** screen is the same thing for a wall of them.
-///
-/// The layout is a stage and a console: the animation stays put with the zoom
-/// in its corner, the image is picked from the title's menu, playback lives on the
-/// transport under the buffer map, and
-/// everything else lives in an inspector – a column beside the stage where
-/// there is room for one, a sheet below it where there isn't. The console is
-/// all list: nothing is pinned above it, so there is only one thing to
-/// scroll and it all scrolls.
 struct AnimatedImagesDemo: View {
     @State private var image: DemoAnimation = .gif
     @State private var settings = Settings()
     @State private var animation: DemoLoadedAnimation?
-    /// What the container of each image declares, parsed once per image: none
-    /// of it changes with the settings, and a long GIF takes a scan to read.
+    /// What the container of each image declares, parsed once per image.
     @State private var infos: [DemoAnimation: DemoAnimationInfo] = [:]
     /// Sampled on a timer rather than observed: the diagnostics change on every
     /// frame, and a view that redrew that often would be measuring itself.
     @State private var diagnostics = AnimatedImagePlayer.Diagnostics()
-    /// The pool, sampled on the same timer, for the panel's closing line: this
-    /// player's cost against the ceiling every animation shares.
+    /// The shared pool, sampled on the same timer.
     @State private var pool = DemoPoolDiagnostics()
-    /// The players behind the extra copies of the animation on the stage. The
-    /// first copy is ``animation``'s own player; these draw from the same
-    /// decoded frames.
+    /// The players behind the extra copies of the animation on the stage. They
+    /// draw from the same decoded frames as ``animation``'s own player.
     @State private var extraPlayers: [AnimatedImagePlayer] = []
     @State private var status: String?
     @State private var isShowingImageDetails = false
-    /// How large the animation is drawn on the stage. Natural size, until
-    /// the zoom control in the canvas corner says otherwise.
     @State private var zoom: DisplayZoom = .scale(1)
-    /// The zoom a pinch began from, as a scale of the natural size, which is
-    /// what the pinch multiplies.
+    /// The zoom a pinch began from, which is what the pinch multiplies.
     @State private var zoomAtPinchStart: Double?
-    /// The size the animation is drawn at, in points, as the stage lays it out.
     @State private var displayedSize: CGSize = .zero
-    /// ``displayedSize`` once it has held still for a moment. It is what a
-    /// "View" frame size decodes for, and a player is built for every change
-    /// of it – so a drag of the slider or a sheet on its way up settles first.
+    /// ``displayedSize`` once it has held still for a moment: a player is built
+    /// for every change of it, so a drag of the slider settles first.
     @State private var settledDisplaySize: CGSize = .zero
     @Environment(\.displayScale) private var displayScale
 
@@ -62,9 +46,7 @@ struct AnimatedImagesDemo: View {
             .task(id: copiesKey) { rebuildCopies() }
             .task(id: displayedSize) { await settleDisplaySize() }
             .onReceive(timer) { _ in sample() }
-            // The title is the image, the way a title menu wants it: it
-            // names what the menu under it switches. It comes before
-            // `demoConsole`, which scopes it to the stage.
+            // Before `demoConsole`, which scopes the title to the stage.
             .navigationTitle(image.title)
             .toolbarTitleMenu {
                 ImageMenu(image: $image, current: image).equatable()
@@ -75,10 +57,7 @@ struct AnimatedImagesDemo: View {
     // MARK: Stage
 
     /// The animation at the zoom picked from the menu in its corner, measured
-    /// on the way: the size it lands at is what a "View" frame size decodes
-    /// for. A zoom past the canvas is trimmed by it, the way a preview canvas
-    /// trims what it can't fit.
-    @ViewBuilder
+    /// on the way: the size it lands at is what a "View" frame size decodes for.
     private var canvas: some View {
         GeometryReader { proxy in
             ZStack {
@@ -98,8 +77,7 @@ struct AnimatedImagesDemo: View {
         }
         .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
         .clipShape(RoundedRectangle(cornerRadius: 16))
-        // The zoom belongs to a single animation: a grid of copies fits each
-        // cell instead, so the pinch and the menu step aside while there is one.
+        // The zoom belongs to a single animation; a grid of copies fits each cell.
         .gesture(pinch, including: extraPlayers.isEmpty ? .all : .subviews)
         .overlay(alignment: .bottomTrailing) {
             if animation != nil, extraPlayers.isEmpty {
@@ -108,16 +86,12 @@ struct AnimatedImagesDemo: View {
         }
     }
 
-    /// Every copy of the animation at once – one cell, the whole canvas, most
-    /// of the time – the main player first, then the extras, all drawing from
-    /// one set of decoded frames. One renderer for both shapes on purpose:
-    /// were the single copy a view of its own, switching shapes would tear it
-    /// down, and ``AnimatedImageView`` pauses a player whose view leaves the
-    /// window – the main player included. Cell 0 living through the switch is
-    /// what keeps it playing.
+    /// Every copy of the animation at once – the main player first, then the
+    /// extras, all drawing from one set of decoded frames.
     ///
-    /// The zoom drives a single copy; a grid fits each cell. The measured size
-    /// is one copy's, so a "View" frame size decodes for what a copy covers.
+    /// One grid for both shapes on purpose: were the single copy a view of its
+    /// own, switching shapes would tear it down, and ``AnimatedImageView``
+    /// pauses a player whose view leaves the window.
     @ViewBuilder
     private func copiesGrid(_ animation: DemoLoadedAnimation, in canvas: CGSize) -> some View {
         let players = [animation.player] + extraPlayers
@@ -144,19 +118,16 @@ struct AnimatedImagesDemo: View {
         .onChange(of: size, initial: true) { _, size in displayedSize = size }
     }
 
-    /// The zoom control a preview canvas has in its corner: the named sizes,
-    /// then the percentages of the natural one. Whatever a pinch left the zoom
-    /// at is named by its percentage and checks nothing.
+    /// The zoom control in the canvas corner: the named sizes, then the
+    /// percentages of the natural one.
     ///
-    /// A view of its own, compared by the zoom alone. The screen redraws ten
-    /// times a second as the diagnostics are sampled, and a menu rebuilt that
-    /// often pulls its items out from under the tap on its way to one – so
-    /// while the zoom stands still, the menu the system is showing is left
-    /// alone.
+    /// Equatable because the screen redraws ten times a second as the
+    /// diagnostics are sampled, and a menu rebuilt that often pulls its items
+    /// out from under the tap on its way to one.
     private struct ZoomMenu: View, Equatable {
         @Binding var zoom: DisplayZoom
-        /// The zoom again as a plain value: the comparison runs outside the
-        /// main actor, where a binding can't be read and a constant can.
+        /// The zoom as a plain value: the comparison runs outside the main
+        /// actor, where a binding can't be read and a constant can.
         let current: DisplayZoom
 
         nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
@@ -186,8 +157,6 @@ struct AnimatedImagesDemo: View {
             }
         }
 
-        /// A toggle rather than a button, for the checkmark on the one in
-        /// effect.
         private func item(_ choice: DisplayZoom) -> some View {
             Toggle(isOn: Binding(get: { zoom == choice }, set: { _ in zoom = choice })) {
                 Text(choice.title)
@@ -195,12 +164,12 @@ struct AnimatedImagesDemo: View {
         }
     }
 
-    /// The transport under the scrubber: step, play, step – the row every
-    /// player has – with the rate at its trailing edge.
+    /// The transport under the scrubber: step, play, step, with the rate at
+    /// its trailing edge.
     private struct TransportBar: View {
         @ObservedObject var player: AnimatedImagePlayer
         @Binding var rate: Double
-        /// What play does, handed in because it runs every copy on the stage.
+        /// Runs every copy on the stage.
         let play: () -> Void
         let step: (Int) -> Void
 
@@ -239,8 +208,6 @@ struct AnimatedImagesDemo: View {
     /// `isFinished` publish, so the button needs no timer.
     private struct PlayButton: View {
         @ObservedObject var player: AnimatedImagePlayer
-        /// What the tap does, handed in because it runs every copy on the
-        /// stage; the observed player is the one the icon reads.
         let play: () -> Void
 
         var body: some View {
@@ -257,15 +224,10 @@ struct AnimatedImagesDemo: View {
         }
     }
 
-    /// The rate at the transport's edge, the way a player writes it: the
-    /// current value as the label, the choices behind a tap.
-    ///
-    /// Equatable for the same reason as ``ZoomMenu``: the console redraws ten
-    /// times a second as the diagnostics are sampled, and an open menu rebuilt
-    /// that often drops its items.
+    /// The rate at the transport's edge. Equatable for the same reason as
+    /// ``ZoomMenu``.
     private struct RateMenu: View, Equatable {
         @Binding var rate: Double
-        /// The rate again as a plain value – see ``ZoomMenu/current``.
         let current: Double
 
         nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
@@ -292,12 +254,10 @@ struct AnimatedImagesDemo: View {
         }
     }
 
-    /// What the title's menu offers, held apart from the sampling for the same
-    /// reason as ``ZoomMenu``: equal means the open menu keeps its items.
+    /// What the title's menu offers. Equatable for the same reason as
+    /// ``ZoomMenu``.
     private struct ImageMenu: View, Equatable {
         @Binding var image: DemoAnimation
-        /// The image again as a plain value, for the same reason as
-        /// ``ZoomMenu/current``.
         let current: DemoAnimation
 
         nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
@@ -311,8 +271,8 @@ struct AnimatedImagesDemo: View {
         }
     }
 
-    /// The animation at the given zoom, in points. Rounded to whole points so
-    /// that a change that doesn't move a pixel doesn't count as one.
+    /// The animation at the given zoom, in points, rounded so that a change
+    /// that doesn't move a pixel doesn't count as one.
     private func displaySize(of animation: DemoLoadedAnimation, in canvas: CGSize, zoom: DisplayZoom) -> CGSize {
         let size = animation.player.source.size
         guard size.width > 0, size.height > 0, canvas.width > 0, canvas.height > 0 else {
@@ -322,7 +282,6 @@ struct AnimatedImagesDemo: View {
         return CGSize(width: (size.width * scale).rounded(), height: (size.height * scale).rounded())
     }
 
-    /// Pinching the animation zooms it, from wherever the menu left it.
     private var pinch: some Gesture {
         MagnifyGesture()
             .onChanged { value in
@@ -335,8 +294,7 @@ struct AnimatedImagesDemo: View {
             }
     }
 
-    /// The zoom in effect as a scale of the natural size, whichever way it was
-    /// chosen: read off what is drawn, so that "fit" has a number too.
+    /// The zoom in effect, read off what is drawn so that "fit" has a number.
     private var zoomScale: Double {
         guard let animation, displayedSize.width > 0 else { return 1 }
         let size = animation.player.source.size
@@ -351,14 +309,11 @@ struct AnimatedImagesDemo: View {
 
     // MARK: Console
 
-    /// Tall enough for the buffer map – the scrubber – the transport under
-    /// it, and a first figure or two, which is what says there is more to
-    /// pull up.
+    /// Tall enough for the buffer map, the transport under it, and a first
+    /// figure or two, which is what says there is more to pull up.
     private static let collapsedConsoleHeight: CGFloat = 232
 
-    /// The diagnostics and the settings, and nothing pinned above them:
-    /// playback lives on the canvas, so the console is all list and all of it
-    /// scrolls.
+    /// All list, so there is only one thing to scroll.
     private var console: some View {
         List {
             diagnosticsSection
@@ -371,18 +326,11 @@ struct AnimatedImagesDemo: View {
 
     // MARK: Sections
 
-    /// The live figures, and under them – folded away – what the container
-    /// declares about the image.
+    /// The live figures, and under them what the container declares.
     @ViewBuilder
     private var diagnosticsSection: some View {
         if let animation {
             Section {
-                // Scrubbing pauses first: seeking while the clock runs would
-                // hand the frame straight back to the animation.
-                // The transport sits right under the map: the map is the
-                // scrubber, the steps are its fine adjustment – one bar of
-                // the delay map per tap – and play is between them, where
-                // every player keeps it.
                 DemoDiagnosticsPanel(
                     player: animation.player,
                     diagnostics: diagnostics,
@@ -418,18 +366,14 @@ struct AnimatedImagesDemo: View {
         }
     }
 
-    /// Two settings, each with what it comes to for this animation right under
-    /// it: the budget in frames held, the frame size in pixels and bytes.
     private var bufferSection: some View {
         Section {
             VStack(alignment: .leading, spacing: 8) {
                 LabeledContent("Budget") {
                     DemoMonoLabel(settings.maxBufferSizeMB.map { String(format: "%.2f MB", $0) } ?? "pool's share")
                 }
-                // The far end of the slider is no ceiling of the player's own,
-                // which is what a player has unless it is given one. It is never
-                // unbounded: the pool is the ceiling either way, and this is a
-                // lower one for this player alone.
+                // The far end of the slider stands for no ceiling of the
+                // player's own, which still leaves the pool as the ceiling.
                 Slider(value: Binding(
                     get: { settings.maxBufferSizeMB ?? Self.maxBudgetMB },
                     set: { settings.maxBufferSizeMB = $0 < Self.maxBudgetMB ? $0 : nil }
@@ -452,8 +396,7 @@ struct AnimatedImagesDemo: View {
                 DemoMonoLabel(frameSizeEffect, tint: settings.frameSize == .full ? nil : .accentColor)
             }
             Button {
-                // The same call the pool makes for itself when the system
-                // issues a memory warning.
+                // The same call the pool makes on a memory warning.
                 AnimatedImageFramePool.shared.reduceMemoryUsage()
             } label: {
                 Label("Free Memory", systemImage: "memorychip")
@@ -465,8 +408,6 @@ struct AnimatedImagesDemo: View {
         }
     }
 
-    /// What the budget comes to, off the player running under it: the whole
-    /// animation, or a window.
     private var budgetEffect: String {
         guard diagnostics.frameCount > 0 else { return " " }
         guard diagnostics.isFullyBuffered else {
@@ -483,8 +424,8 @@ struct AnimatedImagesDemo: View {
         }
     }
 
-    /// The size the frames come out at, and what they cost: computed from the
-    /// setting rather than measured, so it answers before the player is built.
+    /// Computed from the setting rather than measured, so it answers before
+    /// the player is built.
     private var frameSizeEffect: String {
         guard let source = animation?.player.source else { return " " }
         let canvas = source.size
@@ -496,8 +437,6 @@ struct AnimatedImagesDemo: View {
         return "\(demoPixels(size)) px · \(demoByteCount(bytes)) × \(source.frameCount) = \(demoByteCount(bytes * source.frameCount))"
     }
 
-    /// One picker: what every frame goes through on its way out of the
-    /// decoder.
     private var transformSection: some View {
         Section {
             Picker("Transform", selection: $settings.transform) {
@@ -514,8 +453,6 @@ struct AnimatedImagesDemo: View {
         }
     }
 
-    /// The same animation more than once: every copy is a player of its own,
-    /// drawing from one set of decoded frames.
     private var copiesSection: some View {
         Section {
             Picker("Copies", selection: $settings.copies) {
@@ -550,18 +487,16 @@ struct AnimatedImagesDemo: View {
         settings.reloadKey(for: image, viewPixelSize: viewPixelSize)
     }
 
-    /// The longest side of the animation as drawn, in pixels, rounded up to
-    /// the step ``AnimatedImageView`` rounds to – so that a view a point wider
-    /// doesn't decode the animation at a size of its own.
+    /// The longest side of the animation as drawn, in pixels, rounded up to the
+    /// step ``AnimatedImageView`` rounds to.
     private var viewPixelSize: CGFloat {
         let longest = max(settledDisplaySize.width, settledDisplaySize.height) * displayScale
         return (longest / 32).rounded(.up) * 32
     }
 
     private func load() async {
-        // The animation on screen is replaced rather than cleared first: a
-        // console that loses its diagnostics for as long as a player is being
-        // built scrolls itself, and every setting here builds one.
+        // The animation is replaced rather than cleared first: a console that
+        // loses its diagnostics while a player is built scrolls itself.
         let image = self.image
         status = nil
         let maxPixelSize = settings.maxPixelSize(viewPixelSize: viewPixelSize)
@@ -579,8 +514,7 @@ struct AnimatedImagesDemo: View {
         pool = DemoPoolDiagnostics(pool: .shared)
     }
 
-    /// Pauses and moves the playhead by the given number of frames, wrapping
-    /// around either end.
+    /// Wraps around either end.
     private func step(by delta: Int) {
         guard let player = animation?.player else { return }
         let count = player.source.frameCount
@@ -588,8 +522,7 @@ struct AnimatedImagesDemo: View {
     }
 
     /// Pauses every copy and moves the playhead: all of them in lockstep, the
-    /// main one alone otherwise – the offsets the copies started with are the
-    /// point of turning lockstep off.
+    /// main one alone otherwise.
     private func scrub(to index: Int) {
         for player in allPlayers {
             player.pause()
@@ -603,8 +536,7 @@ struct AnimatedImagesDemo: View {
         }
     }
 
-    /// Plays, pauses, or replays every copy on the stage at once, off what the
-    /// main player is doing.
+    /// Every copy at once, off what the main player is doing.
     private func togglePlayback() {
         guard let player = animation?.player else { return }
         if player.isPlaying {
@@ -616,21 +548,17 @@ struct AnimatedImagesDemo: View {
         }
     }
 
-    /// The main player and the extra copies, in stage order.
     private var allPlayers: [AnimatedImagePlayer] {
         guard let animation else { return [] }
         return [animation.player] + extraPlayers
     }
 
     /// The top of the budget slider, where it stands for no ceiling of the
-    /// player's own: whatever share of the pool the animation can get.
+    /// player's own.
     private static let maxBudgetMB: Double = 32
 
     // MARK: Copies
 
-    /// What the extra copies have to be rebuilt for: their number, whether
-    /// they join in lockstep, and the player they copy – a settings change
-    /// builds a new one, and the copies follow it.
     private struct CopiesKey: Hashable {
         var copies: Int
         var isSynchronized: Bool
@@ -645,11 +573,8 @@ struct AnimatedImagesDemo: View {
         )
     }
 
-    /// Builds a player per extra copy, drawing from the same decoded frames
-    /// as the main one: same source, same options. In lockstep a copy starts
-    /// on the frame the others are showing – the way a browser plays every
-    /// copy of one image – and off it starts at the beginning and keeps the
-    /// offset.
+    /// Builds a player per extra copy: same source, same options, so they all
+    /// draw from the same decoded frames.
     private func rebuildCopies() {
         guard let animation, settings.copies > 1 else {
             extraPlayers = []
@@ -668,15 +593,14 @@ struct AnimatedImagesDemo: View {
 
     // MARK: Model
 
-    /// How large the animation is drawn on the stage, the way a preview canvas
-    /// offers it: fitted to the room there is, or a zoom of its natural size.
+    /// How large the animation is drawn: fitted to the room there is, or a
+    /// zoom of its natural size.
     private enum DisplayZoom: Hashable {
         /// As large as fits the canvas whole.
         case fit
         /// Covering the canvas, the edges trimmed.
         case fill
-        /// A multiple of the natural size – the one an `Image` draws it at,
-        /// which is its pixels over its scale. `1` is the natural size itself.
+        /// A multiple of the natural size, which is its pixels over its scale.
         case scale(Double)
 
         static let named: [DisplayZoom] = [.fit, .fill, .scale(1)]
@@ -691,10 +615,9 @@ struct AnimatedImagesDemo: View {
             }
         }
 
-        /// Points per pixel of the animation at this zoom.
-        ///
-        /// Fitting takes the smaller of the two scales and filling the larger:
-        /// the rule `ImageProcessors.Resize` and `AnimatedImageView` use.
+        /// Points per pixel of the animation at this zoom. Fitting takes the
+        /// smaller of the two scales and filling the larger, the rule
+        /// `ImageProcessors.Resize` and `AnimatedImageView` use.
         func pointsPerPixel(for size: CGSize, imageScale: CGFloat, in canvas: CGSize) -> CGFloat {
             switch self {
             case .fit: min(canvas.width / size.width, canvas.height / size.height)
@@ -711,16 +634,13 @@ struct AnimatedImagesDemo: View {
         var playbackRate: Double = 1
         var repeatsForever = true
         var transform: FrameTransformChoice = .none
-        /// How many copies of the animation the stage shows. Not part of the
-        /// ``ReloadKey``: a copy added mid-play joining the others in step is
-        /// the lockstep demonstration.
+        /// Not part of the ``ReloadKey``: a copy added mid-play joining the
+        /// others in step is the lockstep demonstration.
         var copies = 1
         /// ``AnimatedImagePlayer/Options/isSynchronizationEnabled``, for the
         /// extra copies.
         var isSynchronized = true
 
-        /// What every frame goes through as it is decoded – or nothing, which
-        /// is the default.
         enum FrameTransformChoice: Hashable, CaseIterable {
             case none, tint, rounded, grayscale
 
@@ -733,8 +653,6 @@ struct AnimatedImagesDemo: View {
                 }
             }
 
-            /// The transform to hand the player, or `nil` for the frames as
-            /// they are decoded.
             var frameTransform: AnimatedImageFrameTransform? {
                 switch self {
                 case .none: nil
@@ -746,8 +664,7 @@ struct AnimatedImagesDemo: View {
         }
 
         /// The longest side the frames are decoded at. ``AnimatedImageView``
-        /// derives one from its own bounds, which is what ``view`` stands for;
-        /// a player built by hand takes what it is given.
+        /// derives one from its own bounds, which is what ``view`` stands for.
         enum FrameSize: Hashable {
             /// The size the animation was authored at.
             case full
@@ -766,8 +683,6 @@ struct AnimatedImagesDemo: View {
             }
         }
 
-        /// - parameter viewPixelSize: The longest side of the animation as
-        /// drawn, in pixels, for ``FrameSize/view``.
         func maxPixelSize(viewPixelSize: CGFloat) -> CGFloat? {
             switch frameSize {
             case .full: nil
@@ -787,10 +702,9 @@ struct AnimatedImagesDemo: View {
         }
 
         /// The settings a new player has to be built for. Everything else takes
-        /// effect on the player that is already running.
-        ///
-        /// The frame size is in here as the pixels it resolves to, so that a
-        /// "View" size only rebuilds the player when the view crosses a step.
+        /// effect on the player that is already running. The frame size is in
+        /// here as the pixels it resolves to, so that a "View" size rebuilds the
+        /// player only when the view crosses a step.
         struct ReloadKey: Hashable {
             var image: DemoAnimation
             var maxBufferSizeMB: Double?
@@ -841,11 +755,9 @@ private func demoRateLabel(_ value: Double) -> String {
 
 // MARK: - Frame Transforms
 
-/// The transforms the demo offers, applied to every frame on the decoder.
-///
-/// Each one is a handful of Core Graphics calls: the ceiling is what a frame's
-/// worth of time affords, and these stay well under it – the decode rows show
-/// exactly what they add.
+/// The transforms the demo offers, applied to every frame on the decoder. Each
+/// one is a handful of Core Graphics calls, and the decode rows show what they
+/// add.
 extension AnimatedImageFrameTransform {
     /// Nuke pink over every frame, blended so the image shows through.
     static let demoTint = AnimatedImageFrameTransform(identifier: "demo.tint.pink") { frame in
@@ -868,8 +780,7 @@ extension AnimatedImageFrameTransform {
     }
 
     /// The frame redrawn into a one-channel gray bitmap, which is also a
-    /// quarter of the memory: the byte counts in the diagnostics are measured
-    /// off the bitmaps, so the cost rows show the saving.
+    /// quarter of the memory the cost rows report.
     static let demoGrayscale = AnimatedImageFrameTransform(identifier: "demo.grayscale") { frame in
         let context = CGContext(
             data: nil,
@@ -885,7 +796,7 @@ extension AnimatedImageFrameTransform {
 }
 
 /// Draws over or around the frame in a bitmap of the same size, in the format
-/// the compositor likes, and returns what came out.
+/// the compositor likes.
 private func demoDrawnFrame(_ frame: CGImage, _ draw: (CGContext, CGRect) -> Void) -> CGImage? {
     let space = frame.colorSpace.flatMap { $0.model == .rgb ? $0 : nil } ?? CGColorSpaceCreateDeviceRGB()
     guard let context = CGContext(

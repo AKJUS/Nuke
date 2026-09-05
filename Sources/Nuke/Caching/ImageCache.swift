@@ -82,9 +82,6 @@ public final class ImageCache: ImageCaching {
     /// NukeUI takes the rest for the decoded frames of the animations being
     /// played – so playing animations doesn't raise what an app's images may
     /// cost in memory, and an app tuning that cost has one figure to move.
-    ///
-    /// `public` rather than internal because the two limits it explains are:
-    /// the split only reads as one budget where both sides of it can be seen.
     public static var defaultMemoryBudget: Int {
         Int(Double(ProcessInfo.processInfo.physicalMemory) * 0.20)
     }

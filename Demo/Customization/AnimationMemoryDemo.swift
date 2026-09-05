@@ -12,12 +12,6 @@ import SwiftUI
 /// Raise the count in the title bar and every window shrinks to a share; drag
 /// the budget and they all refill. Turn on "Repeat one animation" and the wall
 /// costs what a single cell did, however many cells there are.
-///
-/// The layout is the same one the **Animated Images** screen uses: a stage that
-/// stays put, and a console in an inspector – a column beside the wall where
-/// there is room for one, a sheet below it where there isn't. The count is the
-/// exception: it is the setting the whole screen turns on, so it lives in the
-/// title bar, where it is reachable whatever the console is doing.
 struct AnimationMemoryDemo: View {
     @State private var image: DemoAnimation = .gif
     @State private var settings = Settings()
@@ -27,7 +21,7 @@ struct AnimationMemoryDemo: View {
     @State private var pool = DemoPoolDiagnostics()
     @State private var status: String?
     /// The limit the pool had before the screen took it over, put back on the
-    /// way out: the pool is shared with every other screen in the app.
+    /// way out: the pool is shared with every other screen.
     @State private var poolCostLimit: Int?
 
     private let timer = Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()
@@ -46,8 +40,7 @@ struct AnimationMemoryDemo: View {
                     AnimatedImageFramePool.shared.costLimit = poolCostLimit
                 }
             }
-            // The title and the count come before `demoConsole`, which
-            // scopes them to the stage.
+            // Before `demoConsole`, which scopes them to the stage.
             .navigationTitle("Animation Memory")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -58,16 +51,16 @@ struct AnimationMemoryDemo: View {
             .demoConsole(collapsedHeight: Self.collapsedConsoleHeight, info: Self.info) { console }
     }
 
-    /// How many animations are on the wall, at the trailing edge of the title
-    /// bar: the current count as the label, the choices behind a tap.
+    /// How many animations are on the wall, in the title bar, where it is
+    /// reachable whatever the console is doing.
     ///
     /// Equatable for the reason the **Animated Images** menus are: the screen
     /// redraws ten times a second as the diagnostics are sampled, and a menu
     /// rebuilt that often drops its items while it is open.
     private struct CountMenu: View, Equatable {
         @Binding var count: Int
-        /// The count again as a plain value: the comparison runs outside the
-        /// main actor, where a binding can't be read and a constant can.
+        /// The count as a plain value: the comparison runs outside the main
+        /// actor, where a binding can't be read and a constant can.
         let current: Int
 
         nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
@@ -106,13 +99,11 @@ struct AnimationMemoryDemo: View {
         }
     }
 
-    @ViewBuilder
     private var wall: some View {
         ZStack {
             if !animations.isEmpty {
                 // Each cell wears what it is holding, so the effect of the pool
-                // is on the wall rather than only in the diagnostics: add
-                // animations and every badge drops.
+                // is on the wall rather than only in the diagnostics.
                 DemoAnimationWall(animations: animations) { index in
                     VStack(spacing: 0) {
                         Spacer(minLength: 0)
@@ -135,8 +126,7 @@ struct AnimationMemoryDemo: View {
         .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 
-    /// What a cell is holding, in the smallest number of characters that says
-    /// it: the frames of the animation that are decoded, and what they cost.
+    /// The frames of the animation that are decoded, and what they cost.
     @ViewBuilder
     private func badge(at index: Int) -> some View {
         if diagnostics.indices.contains(index) {
@@ -156,9 +146,7 @@ struct AnimationMemoryDemo: View {
     /// says there is more to pull up.
     private static let collapsedConsoleHeight: CGFloat = 208
 
-    /// The pool settings and the per-animation diagnostics, and nothing pinned
-    /// above them – the way the Animated Images console is all list, so there
-    /// is only one thing to scroll and it all scrolls.
+    /// All list, so there is only one thing to scroll.
     private var console: some View {
         List {
             poolSection
@@ -172,9 +160,7 @@ struct AnimationMemoryDemo: View {
         Section {
             DemoPoolMeter(pool: pool)
                 .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16))
-            // Everything at once, or the same memory warning the pool gives
-            // itself, as a row of the section they are about. The buttons at
-            // their natural size, centered: halves of the row would truncate
+            // At their natural size, centered: halves of the row would truncate
             // "Free Memory" on an iPhone.
             HStack(spacing: 12) {
                 Button {
@@ -188,8 +174,7 @@ struct AnimationMemoryDemo: View {
                 .buttonStyle(.borderedProminent)
 
                 Button {
-                    // The same call the pool makes for itself when the system
-                    // issues a memory warning.
+                    // The same call the pool makes on a memory warning.
                     AnimatedImageFramePool.shared.reduceMemoryUsage()
                 } label: {
                     Label("Free Memory", systemImage: "memorychip")
@@ -224,16 +209,14 @@ struct AnimationMemoryDemo: View {
     // MARK: Loading
 
     /// Everything that requires the animations to be loaded again from scratch.
-    ///
-    /// The pool budget is deliberately not here: changing it takes effect on
-    /// the players that are already running, which is the thing worth seeing.
+    /// Not the pool budget: changing it takes effect on the players that are
+    /// already running, which is the thing worth seeing.
     private var reloadKey: Settings.ReloadKey {
         settings.reloadKey(for: image)
     }
 
-    /// The one that is picked repeated as many times as it takes to fill the
-    /// count – which is what shows the frame sharing – or as many of the others
-    /// as there are.
+    /// The one that is picked, repeated to fill the count, or as many of the
+    /// others as there are.
     private var wallAnimations: [DemoAnimation] {
         guard !settings.repeatsOneAnimation else {
             return Array(repeating: image, count: settings.animationCount)
@@ -247,8 +230,7 @@ struct AnimationMemoryDemo: View {
 
     private func load() async {
         // The wall is replaced rather than cleared first: a console that loses
-        // its diagnostics for as long as the new players are being built
-        // scrolls itself back to the top.
+        // its diagnostics while the players are built scrolls itself to the top.
         status = nil
         let load = await loadDemoAnimations(wallAnimations)
         // Published in one go: a wall that grew a cell at a time would rebuild
@@ -275,8 +257,7 @@ struct AnimationMemoryDemo: View {
         /// reaches it.
         var poolCostLimitMB: Double = 64
         var animationCount = 4
-        /// Whether the wall plays the same animation in every cell, which is
-        /// what shows the frame sharing.
+        /// Plays the same animation in every cell, which shows the frame sharing.
         var repeatsOneAnimation = false
 
         /// The counts that tile evenly.
@@ -331,8 +312,7 @@ private struct DemoWallRow: View {
                     .font(.caption.weight(.semibold))
                 Spacer(minLength: 8)
                 DemoMonoLabel(figures)
-                    // The figures are what they are; a row that wrapped when
-                    // one of them grew a character would move the whole list.
+                    // A row that wrapped when a figure grew would move the list.
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
             }
@@ -341,8 +321,7 @@ private struct DemoWallRow: View {
         .padding(.vertical, 2)
     }
 
-    /// Padded so that they stay put as they change, and without the word
-    /// "frames": the map under them says that much.
+    /// Padded so that they stay put as they change.
     private var figures: String {
         let frames = demoFrameCount(diagnostics)
         let held = demoPad(demoByteCount(diagnostics.bufferedByteCount), to: 8)

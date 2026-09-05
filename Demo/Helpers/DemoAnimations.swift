@@ -39,8 +39,8 @@ enum DemoAnimation: String, CaseIterable, Identifiable {
     }
 }
 
-/// One animation on screen: the player that drives it, and the still the
-/// decoder produced to hold its place until the first frame lands.
+/// One animation on screen: the player that drives it, and the still that
+/// holds its place until the first frame lands.
 struct DemoLoadedAnimation: Identifiable {
     let id: Int
     let title: String
@@ -76,9 +76,8 @@ func loadDemoAnimations(
                 continue
             }
             var options = options
-            // `AnimatedImageView` does this for the players it makes; a player
-            // built by hand has to be told, or the animation changes size the
-            // moment it takes over from the still.
+            // `AnimatedImageView` does this for the players it makes; without
+            // it the animation changes size when it takes over from the still.
             options.scale = response.image.scale
             let player = AnimatedImagePlayer(source: source, options: options)
             player.play()
@@ -98,16 +97,12 @@ func loadDemoAnimations(
 /// One cell per frame: filled when the frame is decoded, and tinted for the
 /// frame on screen. A full row means the animation fits in memory, a moving
 /// band of filled cells means it doesn't.
-///
-/// Given ``onScrub``, the map is also the scrubber: the cells are the timeline
-/// and the tinted one is the thumb, so a slider beside it would be the same
-/// thing drawn twice.
 struct DemoBufferMap: View {
     let player: AnimatedImagePlayer
     let diagnostics: AnimatedImagePlayer.Diagnostics
     var height: CGFloat = 24
-    /// Called with the frame under the finger as it drags across the map.
-    /// `nil` – the default – for a map that only shows.
+    /// Called with the frame under the finger as it drags across the map, which
+    /// makes the map the scrubber. `nil` for a map that only shows.
     var onScrub: ((Int) -> Void)?
 
     var body: some View {
@@ -152,10 +147,9 @@ func demoFrameCount(_ diagnostics: AnimatedImagePlayer.Diagnostics) -> String {
     return demoPad("\(diagnostics.bufferedFrameCount)/\(total)", to: total.count * 2 + 1)
 }
 
-/// One labelled line of the diagnostics.
-///
-/// One line whatever the value: a row that wrapped when a figure grew would
-/// move every row under it, so a value the column can't fit shrinks instead.
+/// One labelled line of the diagnostics, on one line whatever the value: a row
+/// that wrapped when a figure grew would move every row under it, so a value
+/// the column can't fit shrinks instead.
 struct DemoDiagnosticsRow: View {
     private let title: String
     private let value: String
@@ -184,15 +178,13 @@ struct DemoDiagnosticsRow: View {
 // MARK: - Views
 
 /// Every animation at once, laid out to fill the space it is given without
-/// scrolling.
-///
-/// What goes over a cell is up to the caller: the animation memory screen
-/// puts a badge there with what the cell is holding.
+/// scrolling. What goes over a cell is up to the caller.
 struct DemoAnimationWall<Overlay: View>: View {
     let animations: [DemoLoadedAnimation]
-    var spacing: CGFloat = 6
-    var cornerRadius: CGFloat = 10
     @ViewBuilder var overlay: (Int) -> Overlay
+
+    private let spacing: CGFloat = 6
+    private let cornerRadius: CGFloat = 10
 
     var body: some View {
         GeometryReader { proxy in
@@ -218,8 +210,7 @@ struct DemoAnimationWall<Overlay: View>: View {
                 .resizable()
                 .scaledToFill()
                 // Before the overlay and the corners: filling means the frames
-                // are larger than the cell, and what hangs over the edge is
-                // the cell's to trim.
+                // are larger than the cell, and the overflow is the cell's to trim.
                 .frame(width: size.width, height: size.height)
                 .clipped()
                 .overlay { overlay(index) }
@@ -231,17 +222,14 @@ struct DemoAnimationWall<Overlay: View>: View {
 }
 
 /// The grid a wall of animations is laid out on: as many columns as the square
-/// root of the count, which keeps the cells as square and as large as the space
-/// allows.
+/// root of the count.
 func demoWallGrid(count: Int) -> (columns: Int, rows: Int) {
     let columns = max(1, Int(Double(count).squareRoot().rounded(.up)))
     let rows = max(1, Int((Double(count) / Double(columns)).rounded(.up)))
     return (columns, rows)
 }
 
-/// The size of one cell of that grid, which is also the size the frames of the
-/// animation in it are worth decoding at.
-func demoWallCellSize(count: Int, in size: CGSize, spacing: CGFloat = 6) -> CGSize {
+func demoWallCellSize(count: Int, in size: CGSize, spacing: CGFloat) -> CGSize {
     let grid = demoWallGrid(count: count)
     return CGSize(
         width: max(1, (size.width - spacing * CGFloat(grid.columns - 1)) / CGFloat(grid.columns)),
@@ -250,48 +238,35 @@ func demoWallCellSize(count: Int, in size: CGSize, spacing: CGFloat = 6) -> CGSi
 }
 
 /// The numbers behind one animation: the buffer map, and everything
-/// ``AnimatedImagePlayer/diagnostics`` reports about the player under it.
-///
-/// What the container declares – the delays, the loop count, the pixel format
-/// – is ``DemoAnimationDetails``, which the animation screen folds away under
-/// this.
+/// ``AnimatedImagePlayer/diagnostics`` reports about the player under it. What
+/// the container declares is ``DemoAnimationDetails``.
 struct DemoDiagnosticsPanel: View {
     let player: AnimatedImagePlayer
     let diagnostics: AnimatedImagePlayer.Diagnostics
-    /// The size the animation is drawn at, in points, for a line on how the
-    /// frames compare with the pixels they cover. `nil` – the default – for no
-    /// such line.
-    var drawnSize: CGSize?
-    /// The playback controls that sit right under the scrubber, where a
-    /// player keeps them. `nil` – the default – for none.
-    var transport: AnyView?
-    /// What the shared pool holds across every animation, for a closing line
-    /// that puts this player's cost against the ceiling it plays under. `nil`
-    /// – the default – for no such line.
-    var pool: DemoPoolDiagnostics?
-
+    /// The size the animation is drawn at, in points, for the line on how the
+    /// frames compare with the pixels they cover.
+    let drawnSize: CGSize
+    /// The playback controls that sit right under the scrubber.
+    let transport: AnyView
+    /// What the shared pool holds across every animation.
+    let pool: DemoPoolDiagnostics
     /// Makes the buffer map the scrubber – see ``DemoBufferMap/onScrub``.
-    var onScrub: ((Int) -> Void)?
+    let onScrub: (Int) -> Void
 
     @Environment(\.displayScale) private var displayScale
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             DemoBufferMap(player: player, diagnostics: diagnostics, onScrub: onScrub)
-            if let transport {
-                transport
-            }
+            transport
             Divider()
             grid
         }
     }
 
-    /// The figures in clusters – playback, the decoder, the clock, the
-    /// pixels and their cost, closing on the pool they all share – a breath
-    /// between clusters and a tight line
-    /// within, so the rows read as four things rather than a wall. Each line
-    /// is short enough for the column, and the figures that swing are padded
-    /// so that the words after them stay put.
+    /// The figures in clusters – playback, the decoder, the clock, the pixels
+    /// and their cost – with the figures that swing padded so that the words
+    /// after them stay put.
     private var grid: some View {
         let frameCount = diagnostics.frameCount
         let frame = demoPad("\(diagnostics.currentFrameIndex + 1)", to: "\(frameCount)".count)
@@ -323,20 +298,16 @@ struct DemoDiagnosticsPanel: View {
                 if diagnostics.sharingPlayerCount > 1 {
                     DemoDiagnosticsRow("shared", "\(diagnostics.sharingPlayerCount) players on these frames", tint: .accentColor)
                 }
-                if let pool {
-                    DemoDiagnosticsRow("pool", "\(demoPad(demoByteCount(pool.totalCost), to: 7)) of \(demoByteCount(pool.costLimit)) · \(pool.animationCount) animation\(pool.animationCount == 1 ? "" : "s")")
-                }
+                DemoDiagnosticsRow("pool", "\(demoPad(demoByteCount(pool.totalCost), to: 7)) of \(demoByteCount(pool.costLimit)) · \(pool.animationCount) animation\(pool.animationCount == 1 ? "" : "s")")
             }
         }
     }
 
-    /// How long the frame on screen is shown for.
     private var currentDelay: TimeInterval {
         let delays = player.source.delays
         return delays.indices.contains(diagnostics.currentFrameIndex) ? delays[diagnostics.currentFrameIndex] : 0
     }
 
-    /// The time the decoder has spent on this player's frames.
     private var totalDecodeDuration: TimeInterval {
         diagnostics.averageDecodeDuration * Double(diagnostics.decodedFrameCount)
     }
@@ -358,11 +329,10 @@ struct DemoDiagnosticsPanel: View {
         return "\(canvas) → \(demoPixels(decodedSize)) px · \(Int((scale * 100).rounded()))%"
     }
 
-    /// The pixels the animation covers on screen, and how the frames on it
-    /// compare: stretched when they are decoded smaller than that, shrunk when
-    /// larger, and neither when they are drawn pixel for pixel.
+    /// The pixels the animation covers on screen, and whether the frames on it
+    /// are being stretched or shrunk to get there.
     private var screen: (text: String, tint: Color?)? {
-        guard let drawnSize, drawnSize.width > 0, drawnSize.height > 0 else { return nil }
+        guard drawnSize.width > 0, drawnSize.height > 0 else { return nil }
         let pixels = CGSize(width: drawnSize.width * displayScale, height: drawnSize.height * displayScale)
         let drawn = "\(demoPixels(pixels)) px"
         guard let image = player.image?.cgImage else { return (drawn, nil) }
@@ -376,11 +346,9 @@ struct DemoDiagnosticsPanel: View {
         return ("\(drawn) · pixel for pixel", .accentColor)
     }
 
-    /// The size of the frames on screen, when it isn't the canvas size.
-    ///
-    /// Read off the frame the player is showing rather than computed from
-    /// ``AnimatedImagePlayer/Options/maxPixelSize``, so it is what the decoder
-    /// produced and not what it was asked for.
+    /// The size of the frames on screen, when it isn't the canvas size. Read
+    /// off the frame the player is showing, so it is what the decoder produced
+    /// and not what it was asked for.
     private var decodedSize: CGSize? {
         guard let image = player.image?.cgImage else { return nil }
         let size = CGSize(width: image.width, height: image.height)
@@ -388,8 +356,8 @@ struct DemoDiagnosticsPanel: View {
     }
 
     /// What one frame costs in memory. Measured off the buffer when it holds
-    /// anything, because the bitmaps are padded to a row width the compositor
-    /// likes and the canvas arithmetic doesn't know about that.
+    /// anything: the bitmaps are padded to a row width the canvas arithmetic
+    /// doesn't know about.
     private var bytesPerDecodedFrame: Int {
         guard diagnostics.bufferedFrameCount > 0 else {
             return player.source.bytesPerFrame
@@ -402,17 +370,14 @@ struct DemoDiagnosticsPanel: View {
     }
 }
 
-/// What the container declares about an animation, read the way
-/// `AnimatedImageSource` reads it but kept as declared, corrections and all.
-///
-/// The source keeps only what playback needs; this is the rest of what parsing
-/// turned up, for the details under the diagnostics.
+/// What the container declares about an animation, kept as declared rather than
+/// corrected the way ``AnimatedImageSource`` corrects it. The source keeps only
+/// what playback needs; this is the rest of what parsing turned up.
 struct DemoAnimationInfo: Sendable {
     /// The uniform type identifier Image I/O recognized the data as.
     var typeIdentifier: String?
-    /// The delay of every frame as the file declares it, in seconds – `0`
-    /// where it declares none – before the corrections
-    /// ``AnimatedImageSource/delays`` applies.
+    /// The delay of every frame as the file declares it, in seconds, before the
+    /// corrections ``AnimatedImageSource/delays`` applies.
     var declaredDelays: [TimeInterval] = []
     /// Whether the container declares a loop count at all. A GIF without one
     /// plays once, which is a browser rule rather than anything in the file.
@@ -438,15 +403,12 @@ struct DemoAnimationInfo: Sendable {
     }
 
     /// The number of frames whose declared delay the player replaced with
-    /// ``AnimatedImageSource/defaultDelay``: the ones under
-    /// ``AnimatedImageSource/minimumDelay``, which old authoring tools wrote to
-    /// mean "as fast as possible".
+    /// ``AnimatedImageSource/defaultDelay``.
     var clampedFrameCount: Int {
         declaredDelays.filter { $0 < AnimatedImageSource.minimumDelay }.count
     }
 
-    /// Parses the container off the main thread, which is where a scan of a
-    /// long GIF belongs.
+    /// Parses off the main thread, which is where a scan of a long GIF belongs.
     static func parse(_ source: AnimatedImageSource) async -> DemoAnimationInfo {
         await Task.detached(priority: .userInitiated) { DemoAnimationInfo(source: source) }.value
     }
@@ -503,9 +465,7 @@ struct DemoAnimationInfo: Sendable {
 }
 
 /// What the container declares about the animation, against what the player
-/// made of it: the format, the delays and how many the browser rule
-/// corrected, the loop count, and the pixel format the frames are stored in
-/// beside the one they are decoded into.
+/// made of it.
 struct DemoAnimationDetails: View {
     let player: AnimatedImagePlayer
     let diagnostics: AnimatedImagePlayer.Diagnostics
@@ -557,7 +517,6 @@ struct DemoAnimationDetails: View {
         return "\(info.formatName ?? identifier) · \(identifier)"
     }
 
-    /// The delays as they are played, in whole milliseconds.
     private var delaysInMilliseconds: [Int] {
         source.delays.map { Int(($0 * 1000).rounded()) }
     }
@@ -566,8 +525,8 @@ struct DemoAnimationDetails: View {
         Set(delaysInMilliseconds).count > 1
     }
 
-    /// One delay when every frame has it; the range and the most common one
-    /// when they differ.
+    /// One delay when every frame has it; the range and the mode when they
+    /// differ.
     private var delay: String {
         let delays = delaysInMilliseconds
         guard let shortest = delays.min(), let longest = delays.max() else { return "–" }
@@ -594,8 +553,8 @@ struct DemoAnimationDetails: View {
         return "\(channels(of: image))\(depth) · \(alpha(of: image)) · \(colorSpace(of: image))"
     }
 
-    /// The order of the channels in memory, which is what the byte order and
-    /// the alpha position add up to.
+    /// The order of the channels in memory: what the byte order and the alpha
+    /// position add up to.
     private func channels(of image: CGImage) -> String {
         let alphaFirst: Bool
         switch image.alphaInfo {
@@ -636,9 +595,8 @@ struct DemoAnimationDetails: View {
     }
 }
 
-/// One bar per frame, as tall as the frame is long, with the frame on screen
-/// tinted: the rhythm of the animation. Only worth drawing when the delays
-/// differ – equal ones are the buffer map over again.
+/// One bar per frame, as tall as the frame is long: the rhythm of the
+/// animation. Only worth drawing when the delays differ.
 struct DemoDelayMap: View {
     let delays: [TimeInterval]
     let currentFrameIndex: Int
@@ -709,8 +667,6 @@ struct DemoPoolMeter: View {
             .frame(height: 10)
             DemoDiagnosticsRow("pool", "\(demoPad(demoByteCount(pool.totalCost), to: 8)) of \(demoByteCount(pool.costLimit))")
             DemoDiagnosticsRow("players", "\(pool.playerCount) sharing  ·  \(pool.activePlayerCount) filling")
-            // The players outnumber the animations as soon as one of them is on
-            // screen twice.
             DemoDiagnosticsRow("frames", "\(pool.animationCount) sets for \(pool.playerCount) players"
                 + (pool.sharing > 1 ? String(format: "  ·  ×%.1f", pool.sharing) : ""))
         }
@@ -727,8 +683,7 @@ func demoMilliseconds(_ value: TimeInterval) -> String {
     String(format: "%.1fms", value * 1000)
 }
 
-/// A frame delay: whole milliseconds, which is the resolution the containers
-/// store them at.
+/// Whole milliseconds, the resolution the containers store delays at.
 func demoDelay(_ value: TimeInterval) -> String {
     String(format: "%.0fms", value * 1000)
 }
