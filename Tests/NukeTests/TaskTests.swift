@@ -131,7 +131,8 @@ struct TaskTests {
         await Task.yield()
 
         // Then
-        #expect(task.subscribe { _ in } == nil)
+        let subscriptionWasRejected = task.subscribe { _ in }.isNil
+        #expect(subscriptionWasRejected)
     }
 
     @Test func cantSubscribeToAlreadySucceededTask() {
@@ -143,7 +144,8 @@ struct TaskTests {
         task.send(value: 1, isCompleted: true)
 
         // Then
-        #expect(task.subscribe { _ in } == nil)
+        let subscriptionWasRejected = task.subscribe { _ in }.isNil
+        #expect(subscriptionWasRejected)
     }
 
     @Test func cantSubscribeToAlreadyFailedTasks() {
@@ -155,7 +157,8 @@ struct TaskTests {
         task.send(error: .init(raw: "1"))
 
         // Then
-        #expect(task.subscribe { _ in } == nil)
+        let subscriptionWasRejected = task.subscribe { _ in }.isNil
+        #expect(subscriptionWasRejected)
     }
 
     @Test func subscribeToTaskWithSynchronousCompletionReturnsNil() async {
@@ -171,7 +174,8 @@ struct TaskTests {
             }
 
             // Then
-            #expect(subscription == nil)
+            let subscriptionWasRejected = subscription.isNil
+            #expect(subscriptionWasRejected)
         }
     }
 
@@ -243,12 +247,12 @@ struct TaskTests {
         let operation = TaskQueue.Operation()
         let dependency = SimpleTask<Int, MyError>(starter: { $0.operation = operation })
         let task = SimpleTask<Int, MyError>(starter: { $0.dependency = dependency.subscribe { _ in } })
-        let subscription = task.subscribe { _ in }
+        var subscription = task.subscribe { _ in }
         #expect(!operation.isCancelled)
 
         // When
         await waitForCancellation(of: operation) {
-            subscription?.unsubscribe()
+            subscription.take()?.unsubscribe()
         }
 
         // Then
@@ -548,5 +552,16 @@ private final class SimpleTask<T, E>: AsyncTask<T, E>, @unchecked Sendable {
 extension AsyncTask {
     func subscribe(priority: TaskPriority = .normal, _ observer: @escaping (Event) -> Void) -> TaskSubscription? {
         publisher.subscribe(priority: priority, subscriber: "" as AnyObject, observer)
+    }
+}
+
+extension Optional where Wrapped: ~Copyable {
+    /// `#expect(subscription == nil)` needs `Equatable`, which a noncopyable
+    /// subscription can't conform to.
+    var isNil: Bool {
+        switch self {
+        case .none: true
+        case .some: false
+        }
     }
 }

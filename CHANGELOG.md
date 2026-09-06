@@ -25,6 +25,7 @@
 
 - Minimum required platforms: iOS 16.0, tvOS 16.0, watchOS 9.0, macOS 13.0, visionOS 1.0 – https://github.com/kean/Nuke/pull/904
 - Replace the hand-rolled `os_unfair_lock_t` allocations with `OSAllocatedUnfairLock` – https://github.com/kean/Nuke/pull/908
+- The internal `TaskSubscription` is now `~Copyable`, so the compiler rejects unsubscribing twice – https://github.com/kean/Nuke/pull/961
 
 **API Changes**
 

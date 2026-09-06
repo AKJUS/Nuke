@@ -205,7 +205,7 @@ class AsyncTask<Value: Sendable, Error: Sendable>: AsyncTaskSubscriptionDelegate
 
         if reason == .cancelled {
             operation?.cancel()
-            dependency?.unsubscribe()
+            dependency.take()?.unsubscribe()
             onCancelled?()
         }
         onDisposed?()
@@ -298,8 +298,13 @@ extension AsyncTask.Event: Equatable where Value: Equatable, Error: Equatable {}
 
 /// Represents a subscription to a task. The observer must retain a strong
 /// reference to a subscription.
+///
+/// The subscription is a unique handle: it can't be copied, so it has exactly
+/// one owner, and ``unsubscribe()`` consumes it. Dropping one instead is
+/// deliberate – it means the task already finished and there is nothing left
+/// to cancel.
 @ImagePipelineActor
-struct TaskSubscription: Sendable {
+struct TaskSubscription: ~Copyable, Sendable {
     private let task: any AsyncTaskSubscriptionDelegate
     private let key: TaskSubscriptionKey
 
@@ -314,7 +319,7 @@ struct TaskSubscription: Sendable {
     /// If there are no more subscriptions attached to the task, the task gets
     /// cancelled along with its dependencies. The cancelled task is
     /// marked as disposed.
-    func unsubscribe() {
+    consuming func unsubscribe() {
         task.unsubsribe(key: key)
     }
 
