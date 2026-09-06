@@ -213,8 +213,7 @@ public final class ImagePipeline: Sendable {
 
     func imageTaskCancelCalled(_ task: ImageTask) {
         removeTask(task)
-        task._subscription?.unsubscribe()
-        task._subscription = nil
+        task._subscription.take()?.unsubscribe()
         task._cancel()
     }
 
@@ -232,6 +231,8 @@ public final class ImagePipeline: Sendable {
         switch event {
         case .finished:
             removeTask(task)
+            // The worker is already done, so the subscription is dropped
+            // rather than unsubscribed – there is nothing left to cancel.
             task._subscription = nil
         default: break
         }
